@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database
+vault.db
+desktop/vault.db
+
+# Environments
+.env
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDEs
+.vscode/
+.idea/

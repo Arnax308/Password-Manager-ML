@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+cryptography
+flet
+keyboard
+pywinauto
+pydantic
+passlib
