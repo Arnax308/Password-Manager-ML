@@ -35,4 +35,4 @@ python desktop/ui.py
 
 ---
 ### To-Do / Contributing
-If you find a bug or think of a feature to make this even smoother, feel free to open an issue or drop a PR. Or don't.
+If you find a bug or think of a feature to make this even smoother, feel free to open an issue or drop a PR.
