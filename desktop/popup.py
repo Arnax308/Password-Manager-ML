@@ -3,6 +3,7 @@ import sys
 import requests
 import time
 import threading
+import tldextract
 
 def main(page: ft.Page):
     page.title = "LocalPass AutoFill"
@@ -17,6 +18,7 @@ def main(page: ft.Page):
     window_title = sys.argv[1] if len(sys.argv) > 1 else ""
     hwnd_str = sys.argv[2] if len(sys.argv) > 2 else "0"
     b64_typed = sys.argv[3] if len(sys.argv) > 3 else ""
+    browser_url = sys.argv[4] if len(sys.argv) > 4 else ""
     hwnd = int(hwnd_str)
     
     typed_text = ""
@@ -26,10 +28,10 @@ def main(page: ft.Page):
             typed_text = base64.b64decode(b64_typed).decode('utf-8')
     except: pass
     
-    # Analyze typed segment strings
-    segments = [s.strip() for s in typed_text.replace('\n', '\t').split('\t') if len(s.strip()) > 2]
-    guessed_pass = segments[-1] if len(segments) > 0 else ""
-    guessed_user = segments[-2] if len(segments) > 1 else ""
+    # Parse structured credential data from desktop.py (tab-separated: user\tpass)
+    parts = typed_text.split('\t') if typed_text else []
+    guessed_user = parts[0].strip() if len(parts) > 0 else ""
+    guessed_pass = parts[1].strip() if len(parts) > 1 else ""
     
     API_URL = "http://127.0.0.1:5000"
     
@@ -96,14 +98,22 @@ def main(page: ft.Page):
     
     wt_lower = window_title.lower()
     best_domain_guess = ""
-    # Smart URL Parsing
-    title = window_title
-    for suffix in [" - Google Chrome", " - Mozilla Firefox", " - Microsoft Edge", " - Microsoft​ Edge", " - Opera", " | Personal"]:
-        title = title.replace(suffix, "")
-    words = title.replace('-', ' ').replace('|', ' ').split()
-    ignored = {"login", "sign", "in", "up", "home", "page", "account", "the"}
-    valid_words = [w for w in words if len(w) > 2 and w.lower() not in ignored]
-    best_domain_guess = valid_words[0] if valid_words else title
+    
+    # Primary: extract domain from actual browser URL (via UI Automation)
+    if browser_url:
+        ext = tldextract.extract(browser_url)
+        if ext.domain and ext.suffix:
+            best_domain_guess = f"{ext.domain}.{ext.suffix}"  # e.g. "flipkart.com"
+    
+    # Fallback: title-based keyword extraction (for non-browser windows)
+    if not best_domain_guess:
+        title = window_title
+        for suffix in [" - Google Chrome", " - Mozilla Firefox", " - Microsoft Edge", " - Microsoft​ Edge", " - Opera", " | Personal"]:
+            title = title.replace(suffix, "")
+        words = title.replace('-', ' ').replace('|', ' ').split()
+        ignored = {"login", "sign", "in", "up", "home", "page", "account", "the", "online", "shopping", "buy", "sell", "welcome"}
+        valid_words = [w for w in words if len(w) > 2 and w.lower() not in ignored]
+        best_domain_guess = valid_words[0].lower() if valid_words else title.strip().lower()
     
     matches = []
     for p in all_pws:
@@ -126,8 +136,7 @@ def main(page: ft.Page):
     def build_autofill_btn(pw):
         is_missing_user = not pw['username'].strip()
         
-        prefill_user = guessed_pass if len(segments) == 1 else guessed_user
-        if not prefill_user and len(segments) > 0: prefill_user = segments[-1]
+        prefill_user = guessed_user
         
         def on_inline_submit(e):
             if tf_inline_user.value and tf_inline_user.value.strip():
@@ -248,20 +257,57 @@ def main(page: ft.Page):
         tf_edit_pass.value = pwd
         page.update()
 
-    btn_ml_apply = ft.TextButton("Use Suggestion", icon=ft.Icons.AUTO_AWESOME, on_click=lambda e: apply_ml_password(e, lbl_ml_suggestion.data), visible=False)
+    btn_ml_apply = ft.ElevatedButton(
+        "Use This Password", icon=ft.Icons.AUTO_AWESOME,
+        on_click=lambda e: apply_ml_password(e, lbl_ml_suggestion.data),
+        visible=False, bgcolor=ft.Colors.GREEN_900,
+        style=ft.ButtonStyle(padding=8)
+    )
+    btn_ml_regenerate = ft.TextButton(
+        "Regenerate", icon=ft.Icons.REFRESH,
+        visible=False
+    )
+
+    def fetch_ml_suggestion():
+        """Fetch ML-generated password and update suggestion UI."""
+        lbl_ml_suggestion.value = "⏳ Generating secure password..."
+        lbl_ml_suggestion.color = ft.Colors.WHITE54
+        btn_ml_apply.visible = False
+        btn_ml_regenerate.visible = False
+        page.update()
+        
+        def _fetch():
+            try:
+                resp = requests.get(f"{API_URL}/api/generate").json()
+                gen_pwd = resp.get("generated_password")
+                lbl_ml_suggestion.value = f"✨ Suggested: {gen_pwd}\nScore: {resp.get('score')} · TTL: {resp.get('ttl_days')} days"
+                lbl_ml_suggestion.color = ft.Colors.GREEN_400
+                lbl_ml_suggestion.data = gen_pwd
+                btn_ml_apply.visible = True
+                btn_ml_regenerate.visible = True
+            except:
+                lbl_ml_suggestion.value = "Failed to generate password."
+                lbl_ml_suggestion.color = ft.Colors.RED_300
+                btn_ml_regenerate.visible = True
+            page.update()
+        
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    btn_ml_regenerate.on_click = lambda e: fetch_ml_suggestion()
 
     def show_edit_form(pw):
         list_view.visible = False
         edit_view.visible = True
         
         if pw:
+            # Editing an existing account
             tf_edit_dom.value = pw['domain']
             tf_edit_user.value = pw['username']
             tf_edit_pass.value = pw['password']
             
-            # Smart edit logic
+            # Smart edit: detect if user typed a different password (password change)
             if guessed_pass and guessed_pass != pw['password']:
-                lbl_ml_suggestion.value = f"Detected updated password typed locally."
+                lbl_ml_suggestion.value = "Detected updated password typed locally."
                 lbl_ml_suggestion.color = ft.Colors.ORANGE_400
                 tf_edit_pass.value = guessed_pass
             else:
@@ -269,41 +315,28 @@ def main(page: ft.Page):
                 
             current_edit_id[0] = pw['id']
             btn_ml_apply.visible = False
+            btn_ml_regenerate.visible = False
         else:
+            # Adding a new account
             tf_edit_dom.value = best_domain_guess
-            tf_edit_user.value = guessed_user
-            tf_edit_pass.value = guessed_pass
+            tf_edit_user.value = ""  # Leave blank — user enters manually
+            tf_edit_pass.value = ""  # Left empty, ML suggestion available via button
             current_edit_id[0] = None
             
-            if guessed_pass:
-                lbl_ml_suggestion.value = "Smart-filled from recent local typing!"
-                lbl_ml_suggestion.color = ft.Colors.GREEN_400
-                btn_ml_apply.visible = False
-            else:
-                lbl_ml_suggestion.value = "Fetching ML suggestion..."
-                lbl_ml_suggestion.color = ft.Colors.WHITE54
-                btn_ml_apply.visible = False
-            page.update()
-            
-            def fetch_ml():
-                try:
-                    resp = requests.get(f"{API_URL}/api/generate").json()
-                    gen_pwd = resp.get("generated_password")
-                    lbl_ml_suggestion.value = f"✨ ML Suggestion: {gen_pwd}\nScore: {resp.get('score')} - TTL: {resp.get('ttl_days')} days."
-                    lbl_ml_suggestion.color = ft.Colors.GREEN_400
-                    lbl_ml_suggestion.data = gen_pwd
-                    btn_ml_apply.visible = True
-                except:
-                    lbl_ml_suggestion.value = "Failed to fetch ML password."
-                page.update()
-                
-            threading.Thread(target=fetch_ml, daemon=True).start()
+            # Auto-fetch an ML password suggestion
+            fetch_ml_suggestion()
+
         page.update()
 
     def show_list_view(e=None):
         edit_view.visible = False
         list_view.visible = True
         page.update()
+
+    ml_buttons_row = ft.Row(
+        [btn_ml_apply, btn_ml_regenerate],
+        spacing=10, alignment=ft.MainAxisAlignment.START
+    )
 
     edit_view.controls = [
         ft.Row([
@@ -315,7 +348,7 @@ def main(page: ft.Page):
         tf_edit_user,
         tf_edit_pass,
         lbl_ml_suggestion,
-        btn_ml_apply,
+        ml_buttons_row,
         ft.Container(height=10),
         ft.ElevatedButton("Save & AutoFill", on_click=lambda e: on_save_edit(e, auto_fill=True), width=350, bgcolor=ft.Colors.INDIGO_700),
         ft.TextButton("Save only", on_click=lambda e: on_save_edit(e, auto_fill=False), width=350)
