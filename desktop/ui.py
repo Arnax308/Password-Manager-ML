@@ -515,10 +515,26 @@ def main(page: ft.Page):
         page.update()
 
     # --- Hotkey Integration Logic ---
+    import os
+    import sys
+    import json
+    import subprocess
+    
+    TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "localpass_popup_trigger.json")
+
     def handle_global_hotkey(window_title="", hwnd=0, b64_typed="", browser_url=""):
-        # Spawn the isolated popup process
-        import subprocess
-        subprocess.Popen([sys.executable, "popup.py", window_title, str(hwnd), b64_typed, browser_url])
+        # Instead of spawning a new process, write a trigger file that the standby popup picks up
+        payload = {
+            "title": window_title,
+            "hwnd": str(hwnd),
+            "b64_typed": b64_typed,
+            "browser_url": browser_url
+        }
+        try:
+            with open(TRIGGER_FILE, "w") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
 
     set_overlay_callback(handle_global_hotkey)
 
@@ -533,6 +549,9 @@ def main(page: ft.Page):
         if page.appbar:
             refresh_vault(tf_search.value)
     backend.ON_DB_UPDATE.append(on_db_change)
+
+    # Launch the standby popup process that waits for the trigger file
+    subprocess.Popen([sys.executable, "popup.py", "--standby"], creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
 
     # Initial launch
     show_auth_screen()
