@@ -3,7 +3,8 @@ import sys
 import requests
 import time
 import threading
-import tldextract
+import re
+from urllib.parse import urlparse
 
 def main(page: ft.Page):
     page.title = "LocalPass AutoFill"
@@ -101,19 +102,40 @@ def main(page: ft.Page):
     
     # Primary: extract domain from actual browser URL (via UI Automation)
     if browser_url:
-        ext = tldextract.extract(browser_url)
-        if ext.domain and ext.suffix:
-            best_domain_guess = f"{ext.domain}.{ext.suffix}"  # e.g. "flipkart.com"
+        try:
+            parsed = urlparse(browser_url)
+            hostname = parsed.hostname or ""
+            # Strip leading "www."
+            if hostname.startswith("www."):
+                hostname = hostname[4:]
+            if hostname:
+                best_domain_guess = hostname  # e.g. "flipkart.com"
+        except Exception:
+            pass
     
-    # Fallback: title-based keyword extraction (for non-browser windows)
+    # Fallback: title-based domain extraction (for non-browser or when URL extraction failed)
     if not best_domain_guess:
         title = window_title
-        for suffix in [" - Google Chrome", " - Mozilla Firefox", " - Microsoft Edge", " - Microsoft​ Edge", " - Opera", " | Personal"]:
+        # Strip common browser & profile suffixes
+        for suffix in [" - Google Chrome", " - Mozilla Firefox", " - Microsoft Edge",
+                       " - Microsoft\u200b Edge", " - Opera", " - Brave", " - Vivaldi",
+                       " | Personal", " | Work", " - Profile 1", " - Profile 2"]:
             title = title.replace(suffix, "")
-        words = title.replace('-', ' ').replace('|', ' ').split()
-        ignored = {"login", "sign", "in", "up", "home", "page", "account", "the", "online", "shopping", "buy", "sell", "welcome"}
-        valid_words = [w for w in words if len(w) > 2 and w.lower() not in ignored]
-        best_domain_guess = valid_words[0].lower() if valid_words else title.strip().lower()
+        title = title.strip()
+        
+        # Strategy 1: look for domain-like patterns (word.tld) in the title
+        domain_pattern = re.findall(r'[\w-]+\.(?:com|org|net|in|co|io|dev|edu|gov|app|me|xyz|info|biz|us|uk|ai|gg|tv)(?:\.[a-z]{2,3})?', title, re.IGNORECASE)
+        if domain_pattern:
+            best_domain_guess = domain_pattern[0].lower()
+        else:
+            # Strategy 2: take the first meaningful keyword from the title
+            words = title.replace('-', ' ').replace('|', ' ').replace('\u2013', ' ').split()
+            ignored = {"login", "sign", "in", "up", "home", "page", "account", "the",
+                       "online", "shopping", "buy", "sell", "welcome", "new", "tab",
+                       "and", "for", "with", "your", "free", "best", "india", "official",
+                       "site", "website", "log", "my", "get", "app", "web"}
+            valid_words = [w for w in words if len(w) > 2 and w.lower() not in ignored]
+            best_domain_guess = valid_words[0].lower() if valid_words else title.strip().split()[0].lower() if title.strip() else ""
     
     matches = []
     for p in all_pws:
