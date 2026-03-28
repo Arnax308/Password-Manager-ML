@@ -1,4 +1,5 @@
 import flet as ft
+import sys
 import time
 import json
 import app as backend
@@ -517,7 +518,7 @@ def main(page: ft.Page):
     def handle_global_hotkey(window_title="", hwnd=0, b64_typed="", browser_url=""):
         # Spawn the isolated popup process
         import subprocess
-        subprocess.Popen(["python", "popup.py", window_title, str(hwnd), b64_typed, browser_url])
+        subprocess.Popen([sys.executable, "popup.py", window_title, str(hwnd), b64_typed, browser_url])
 
     set_overlay_callback(handle_global_hotkey)
 

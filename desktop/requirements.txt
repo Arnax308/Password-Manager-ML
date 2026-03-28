@@ -6,3 +6,5 @@ keyboard
 pywinauto
 pydantic
 passlib
+tldextract
+requests
