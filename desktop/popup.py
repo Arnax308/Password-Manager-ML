@@ -27,18 +27,30 @@ def main(page: ft.Page):
     standby = "--standby" in sys.argv
 
     if standby:
-        page.window.visible = False
+        # Hide completely: off-screen + invisible + skip taskbar
+        page.window.left = -32000
+        page.window.top = -32000
+        page.window.opacity = 0
+        page.window.skip_task_bar = True
         page.window.prevent_close = True
         def on_window_event(e):
             if e.data == "close":
-                page.window.visible = False
+                # Refuse close — just re-hide
+                page.window.left = -32000
+                page.window.top = -32000
+                page.window.opacity = 0
                 page.update()
         page.window.on_event = on_window_event
 
     def dismiss():
-        page.window.visible = False
-        page.update()
-        if not standby:
+        if standby:
+            page.window.left = -32000
+            page.window.top = -32000
+            page.window.opacity = 0
+            page.update()
+        else:
+            page.window.visible = False
+            page.update()
             page.window.destroy()
 
     def guess_domain(window_title, browser_url):
@@ -111,11 +123,15 @@ def main(page: ft.Page):
 
         API_URL = "http://127.0.0.1:5000"
 
-        app_bar = ft.Row([
-            ft.Icon(ft.Icons.SHIELD, color=ft.Colors.INDIGO_400),
-            ft.Text("AutoFill Request", weight=ft.FontWeight.BOLD, expand=True),
-            ft.IconButton(ft.Icons.CLOSE, icon_size=16, on_click=lambda e: dismiss())
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        drag_bar = ft.WindowDragArea(
+            ft.Row([
+                ft.Icon(ft.Icons.SHIELD, color=ft.Colors.INDIGO_400),
+                ft.Text("AutoFill Request", weight=ft.FontWeight.BOLD, expand=True),
+                ft.IconButton(ft.Icons.CLOSE, icon_size=16, on_click=lambda e: dismiss())
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            expand=True
+        )
+        app_bar = ft.Row([drag_bar], expand=True)
 
         # Show loading indicator immediately to prevent perceived slowness
         page.add(
@@ -123,7 +139,16 @@ def main(page: ft.Page):
             ft.Container(height=100),
             ft.Row([ft.ProgressRing(width=20, height=20, stroke_width=2), ft.Text("Loading Vault...", color=ft.Colors.WHITE54)], alignment=ft.MainAxisAlignment.CENTER)
         )
-        page.window.visible = True
+        if standby:
+            # Snap to center of screen and make visible
+            import ctypes
+            sw = ctypes.windll.user32.GetSystemMetrics(0)
+            sh = ctypes.windll.user32.GetSystemMetrics(1)
+            page.window.left = (sw - 380) // 2
+            page.window.top = (sh - 480) // 2
+            page.window.opacity = 1
+        else:
+            page.window.visible = True
         page.update()
 
         try:

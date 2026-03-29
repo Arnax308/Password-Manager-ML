@@ -521,7 +521,6 @@ def main(page: ft.Page):
     import subprocess
 
     TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "localpass_popup_trigger.json")
-    _popup_lock = threading.Lock()
 
     def handle_global_hotkey(window_title="", hwnd=0, b64_typed="", browser_url=""):
         """Write the trigger file immediately so the poller picks it up."""
@@ -558,48 +557,36 @@ def main(page: ft.Page):
     except Exception:
         pass
 
-    # ── In-process trigger file poller ──────────────────────────────────────
-    # Polls for the trigger file and spawns a fresh popup.py per hotkey press.
-    # This replaces the old "standby Flet process" approach which caused a second
-    # visible window and broke if the user accidentally closed it.
+    # ── Standby popup process ────────────────────────────────────────────────
+    # A hidden popup.py is pre-launched at startup so it can show instantly on
+    # hotkey press (no Flet startup latency per invocation).
+    # A watchdog thread auto-restarts it if the process ever exits.
     _popup_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "popup.py")
+    _standby_proc = [None]
 
-    def _popup_poller():
-        import base64 as _b64
+    def _launch_standby():
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE — suppress the initial console/process window
+            _standby_proc[0] = subprocess.Popen(
+                [sys.executable, _popup_script, "--standby"],
+                startupinfo=si,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except Exception:
+            pass
+
+    def _watchdog():
         while True:
-            try:
-                if os.path.exists(TRIGGER_FILE):
-                    # Brief grace period so the async browser-URL fetch can write its result
-                    time.sleep(0.25)
-                    with _popup_lock:
-                        try:
-                            with open(TRIGGER_FILE, "r") as f:
-                                params = json.load(f)
-                            os.remove(TRIGGER_FILE)
-                        except Exception:
-                            time.sleep(0.05)
-                            continue
+            time.sleep(3)
+            proc = _standby_proc[0]
+            if proc is None or proc.poll() is not None:
+                # Process exited — restart it
+                _launch_standby()
 
-                    # Spawn the popup as a new process with args (no --standby, no second window)
-                    si = subprocess.STARTUPINFO()
-                    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                    si.wShowWindow = 0  # SW_HIDE — Flet starts hidden; popup.py shows itself
-                    subprocess.Popen(
-                        [
-                            sys.executable, _popup_script,
-                            params.get("title", ""),
-                            params.get("hwnd", "0"),
-                            params.get("b64_typed", ""),
-                            params.get("browser_url", ""),
-                        ],
-                        startupinfo=si,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
-            except Exception:
-                pass
-            time.sleep(0.05)
-
-    threading.Thread(target=_popup_poller, daemon=True).start()
+    _launch_standby()
+    threading.Thread(target=_watchdog, daemon=True).start()
 
     # Initial launch
     show_auth_screen()
