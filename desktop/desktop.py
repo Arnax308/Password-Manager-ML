@@ -160,7 +160,7 @@ class DesktopIntegration:
 
     def _summon_search(self):
         logging.info("Hotkey pressed. Summoning Flet UI Overlay...")
-        
+
         import ctypes
 
         self.active_window_before_search = ctypes.windll.user32.GetForegroundWindow()
@@ -179,31 +179,9 @@ class DesktopIntegration:
         _current_word.clear()
         _segments.clear()
 
-        # Write trigger file IMMEDIATELY (no browser URL yet) so the popup appears without delay
         if self.on_hotkey_callback:
             self.on_hotkey_callback(title, hwnd, b64_typed, "")
 
-        # Fetch the browser URL in the background and update the trigger file once available
-        def _update_url_async():
-            try:
-                browser_url = self._get_browser_url(hwnd)
-                if browser_url and self.on_hotkey_callback:
-                    # Only update if trigger file still exists (popup hasn't consumed it yet)
-                    import os, json
-                    TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "localpass_popup_trigger.json")
-                    if os.path.exists(TRIGGER_FILE):
-                        try:
-                            with open(TRIGGER_FILE, 'r') as f:
-                                payload = json.load(f)
-                            payload["browser_url"] = browser_url
-                            with open(TRIGGER_FILE, 'w') as f:
-                                json.dump(payload, f)
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        threading.Thread(target=_update_url_async, daemon=True).start()
 
     def autotype(self, username, password):
         """Auto-types the credentials into the previous active window."""

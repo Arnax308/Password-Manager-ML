@@ -517,24 +517,31 @@ def main(page: ft.Page):
     # --- Hotkey Integration Logic ---
     import os
     import sys
-    import json
     import subprocess
 
-    TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "localpass_popup_trigger.json")
+    _popup_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "popup.py")
 
-    def handle_global_hotkey(window_title="", hwnd=0, b64_typed="", browser_url=""):
-        """Write the trigger file immediately so the poller picks it up."""
-        payload = {
-            "title": window_title,
-            "hwnd": str(hwnd),
-            "b64_typed": b64_typed,
-            "browser_url": browser_url
-        }
+    def _spawn_popup(window_title, hwnd, b64_typed, browser_url):
         try:
-            with open(TRIGGER_FILE, "w") as f:
-                json.dump(payload, f)
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 0  # SW_HIDE for the process window; Flet uses FLET_APP_HIDDEN
+            subprocess.Popen(
+                [sys.executable, _popup_script,
+                 window_title, str(hwnd), b64_typed, browser_url],
+                startupinfo=si,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
         except Exception:
             pass
+
+    def handle_global_hotkey(window_title="", hwnd=0, b64_typed="", browser_url=""):
+        """Spawn a fresh popup.py process immediately on each hotkey press."""
+        threading.Thread(
+            target=_spawn_popup,
+            args=(window_title, hwnd, b64_typed, browser_url),
+            daemon=True
+        ).start()
 
     set_overlay_callback(handle_global_hotkey)
 
@@ -550,46 +557,9 @@ def main(page: ft.Page):
             refresh_vault(tf_search.value)
     backend.ON_DB_UPDATE.append(on_db_change)
 
-    # Clean up any leftover trigger file from a previous run
-    try:
-        if os.path.exists(TRIGGER_FILE):
-            os.remove(TRIGGER_FILE)
-    except Exception:
-        pass
-
-    # ── Standby popup process ────────────────────────────────────────────────
-    # A hidden popup.py is pre-launched at startup so it can show instantly on
-    # hotkey press (no Flet startup latency per invocation).
-    # A watchdog thread auto-restarts it if the process ever exits.
-    _popup_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "popup.py")
-    _standby_proc = [None]
-
-    def _launch_standby():
-        try:
-            si = subprocess.STARTUPINFO()
-            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            si.wShowWindow = 0  # SW_HIDE — suppress the initial console/process window
-            _standby_proc[0] = subprocess.Popen(
-                [sys.executable, _popup_script, "--standby"],
-                startupinfo=si,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-        except Exception:
-            pass
-
-    def _watchdog():
-        while True:
-            time.sleep(3)
-            proc = _standby_proc[0]
-            if proc is None or proc.poll() is not None:
-                # Process exited — restart it
-                _launch_standby()
-
-    _launch_standby()
-    threading.Thread(target=_watchdog, daemon=True).start()
-
     # Initial launch
     show_auth_screen()
+
 
 if __name__ == "__main__":
     api_thread = threading.Thread(target=run_api, daemon=True)

@@ -24,37 +24,10 @@ def main(page: ft.Page):
     page.padding = 15
     page.theme = ft.Theme(color_scheme_seed=ft.Colors.INDIGO)
 
-    standby = "--standby" in sys.argv
-
-    if standby:
-        # Belt-and-suspenders: FLET_APP_HIDDEN already suppresses creation,
-        # but set these too in case of flash on some systems
-        page.window.visible = False
-        page.window.left = -32000
-        page.window.top = -32000
-        page.window.opacity = 0
-        page.window.skip_task_bar = True
-        page.window.prevent_close = True
-        def on_window_event(e):
-            if e.data == "close":
-                # Refuse close — just re-hide
-                page.window.visible = False
-                page.window.left = -32000
-                page.window.top = -32000
-                page.window.opacity = 0
-                page.update()
-        page.window.on_event = on_window_event
-
     def dismiss():
-        if standby:
-            page.window.left = -32000
-            page.window.top = -32000
-            page.window.opacity = 0
-            page.update()
-        else:
-            page.window.visible = False
-            page.update()
-            page.window.destroy()
+        page.window.visible = False
+        page.update()
+        page.window.destroy()
 
     def guess_domain(window_title, browser_url):
         """Extract best domain guess from browser URL or window title."""
@@ -136,23 +109,19 @@ def main(page: ft.Page):
         )
         app_bar = ft.Row([drag_bar], expand=True)
 
-        # Show loading indicator immediately to prevent perceived slowness
+        # Show loading indicator, then make window visible
         page.add(
             app_bar,
             ft.Container(height=100),
             ft.Row([ft.ProgressRing(width=20, height=20, stroke_width=2), ft.Text("Loading Vault...", color=ft.Colors.WHITE54)], alignment=ft.MainAxisAlignment.CENTER)
         )
-        if standby:
-            # Snap to center of screen and make visible
-            import ctypes
-            sw = ctypes.windll.user32.GetSystemMetrics(0)
-            sh = ctypes.windll.user32.GetSystemMetrics(1)
-            page.window.left = (sw - 380) // 2
-            page.window.top = (sh - 480) // 2
-            page.window.opacity = 1
-            page.window.visible = True
-        else:
-            page.window.visible = True
+        import ctypes
+        sw = ctypes.windll.user32.GetSystemMetrics(0)
+        sh = ctypes.windll.user32.GetSystemMetrics(1)
+        page.window.left = (sw - 380) // 2
+        page.window.top = (sh - 480) // 2
+        page.window.visible = True
+        page.window.opacity = 1
         page.update()
 
         try:
@@ -447,36 +416,13 @@ def main(page: ft.Page):
         else:
             render_list()
 
-    # --- Launch mode ---
-    if standby:
-        def poll_trigger():
-            while True:
-                try:
-                    if os.path.exists(TRIGGER_FILE):
-                        # Wait briefly so the async browser-URL fetch can update the file
-                        time.sleep(0.25)
-                        with open(TRIGGER_FILE, 'r') as f:
-                            params = json.load(f)
-                        try:
-                            os.remove(TRIGGER_FILE)
-                        except Exception:
-                            pass
-                        load_popup(params)
-                except Exception:
-                    pass
-                time.sleep(0.05)
-
-        threading.Thread(target=poll_trigger, daemon=True).start()
-    else:
-        load_popup({
-            "title": sys.argv[1] if len(sys.argv) > 1 else "",
-            "hwnd": sys.argv[2] if len(sys.argv) > 2 else "0",
-            "b64_typed": sys.argv[3] if len(sys.argv) > 3 else "",
-            "browser_url": sys.argv[4] if len(sys.argv) > 4 else "",
-        })
+    # Always launched fresh per hotkey press — just read args
+    load_popup({
+        "title": sys.argv[1] if len(sys.argv) > 1 else "",
+        "hwnd": sys.argv[2] if len(sys.argv) > 2 else "0",
+        "b64_typed": sys.argv[3] if len(sys.argv) > 3 else "",
+        "browser_url": sys.argv[4] if len(sys.argv) > 4 else "",
+    })
 
 if __name__ == "__main__":
-    if "--standby" in sys.argv:
-        ft.app(target=main, view=ft.AppView.FLET_APP_HIDDEN)
-    else:
-        ft.app(target=main)
+    ft.app(target=main, view=ft.AppView.FLET_APP_HIDDEN)
