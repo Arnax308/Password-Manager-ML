@@ -161,29 +161,49 @@ class DesktopIntegration:
     def _summon_search(self):
         logging.info("Hotkey pressed. Summoning Flet UI Overlay...")
         
-        # Save active window before the Flet overlay steals focus
         import ctypes
-        
+
         self.active_window_before_search = ctypes.windll.user32.GetForegroundWindow()
-        title = self._get_window_title(self.active_window_before_search)
-        
-        # Extract actual URL from browser address bar (if applicable)
-        browser_url = self._get_browser_url(self.active_window_before_search)
-        
+        hwnd = self.active_window_before_search
+        title = self._get_window_title(hwnd)
+
         # Finalize any in-progress word, then extract credential candidates
         _finalize_word(None)
         guessed_user, guessed_pass = _extract_credentials()
-        
+
         # Encode as tab-separated pair
         typed_string = f"{guessed_user}\t{guessed_pass}"
         b64_typed = base64.b64encode(typed_string.encode('utf-8')).decode('utf-8')
-        
+
         # Clear state for next session
         _current_word.clear()
         _segments.clear()
-        
+
+        # Write trigger file IMMEDIATELY (no browser URL yet) so the popup appears without delay
         if self.on_hotkey_callback:
-            self.on_hotkey_callback(title, self.active_window_before_search, b64_typed, browser_url)
+            self.on_hotkey_callback(title, hwnd, b64_typed, "")
+
+        # Fetch the browser URL in the background and update the trigger file once available
+        def _update_url_async():
+            try:
+                browser_url = self._get_browser_url(hwnd)
+                if browser_url and self.on_hotkey_callback:
+                    # Only update if trigger file still exists (popup hasn't consumed it yet)
+                    import os, json
+                    TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "localpass_popup_trigger.json")
+                    if os.path.exists(TRIGGER_FILE):
+                        try:
+                            with open(TRIGGER_FILE, 'r') as f:
+                                payload = json.load(f)
+                            payload["browser_url"] = browser_url
+                            with open(TRIGGER_FILE, 'w') as f:
+                                json.dump(payload, f)
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
+        threading.Thread(target=_update_url_async, daemon=True).start()
 
     def autotype(self, username, password):
         """Auto-types the credentials into the previous active window."""

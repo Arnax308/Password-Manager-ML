@@ -8,6 +8,10 @@ import json
 import os
 from urllib.parse import urlparse
 
+# Use a session and disable proxy to make localhost requests instant (bypasses Windows proxy/DNS delays)
+session = requests.Session()
+session.trust_env = False  # Ignore HTTP_PROXY and Windows proxies
+
 TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "localpass_popup_trigger.json")
 
 def main(page: ft.Page):
@@ -113,16 +117,25 @@ def main(page: ft.Page):
             ft.IconButton(ft.Icons.CLOSE, icon_size=16, on_click=lambda e: dismiss())
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
+        # Show loading indicator immediately to prevent perceived slowness
+        page.add(
+            app_bar,
+            ft.Container(height=100),
+            ft.Row([ft.ProgressRing(width=20, height=20, stroke_width=2), ft.Text("Loading Vault...", color=ft.Colors.WHITE54)], alignment=ft.MainAxisAlignment.CENTER)
+        )
+        page.window.visible = True
+        page.update()
+
         try:
-            status = requests.get(f"{API_URL}/api/status").json()
+            status = session.get(f"{API_URL}/api/status").json()
             if not status.get("is_unlocked"):
+                page.controls.clear()
                 page.add(app_bar, ft.Divider(), ft.Text("Vault is Locked. Please open main app.", color=ft.Colors.RED_300))
-                page.window.visible = True
                 page.update()
                 return
         except Exception:
+            page.controls.clear()
             page.add(app_bar, ft.Divider(), ft.Text("Could not connect to backend."))
-            page.window.visible = True
             page.update()
             return
 
@@ -160,7 +173,7 @@ def main(page: ft.Page):
             if mode != "user":
                 dismiss()
 
-        pw_resp = requests.get(f"{API_URL}/api/passwords")
+        pw_resp = session.get(f"{API_URL}/api/passwords")
         all_pws = pw_resp.json() if pw_resp.status_code == 200 else []
 
         wt_lower = window_title.lower()
@@ -190,7 +203,7 @@ def main(page: ft.Page):
 
             def on_inline_submit(e):
                 if tf_inline_user.value and tf_inline_user.value.strip():
-                    requests.put(f"{API_URL}/api/passwords/{pw['id']}", json={
+                    session.put(f"{API_URL}/api/passwords/{pw['id']}", json={
                         "domain": pw['domain'],
                         "username": tf_inline_user.value.strip(),
                         "password": pw['password']
@@ -210,7 +223,7 @@ def main(page: ft.Page):
                 final_user = pw['username']
                 if is_missing_user and tf_inline_user.value and tf_inline_user.value.strip():
                     final_user = tf_inline_user.value.strip()
-                    requests.put(f"{API_URL}/api/passwords/{pw['id']}", json={
+                    session.put(f"{API_URL}/api/passwords/{pw['id']}", json={
                         "domain": pw['domain'], "username": final_user, "password": pw['password']
                     })
                 threading.Thread(target=do_autotype, args=(final_user, pw['password'], mode)).start()
@@ -275,9 +288,9 @@ def main(page: ft.Page):
         def on_save_edit(e, auto_fill=False):
             data = {"domain": tf_edit_dom.value or "", "username": tf_edit_user.value or "", "password": tf_edit_pass.value or ""}
             if current_edit_id[0] is None:
-                resp = requests.post(f"{API_URL}/api/passwords", json=data)
+                resp = session.post(f"{API_URL}/api/passwords", json=data)
             else:
-                resp = requests.put(f"{API_URL}/api/passwords/{current_edit_id[0]}", json=data)
+                resp = session.put(f"{API_URL}/api/passwords/{current_edit_id[0]}", json=data)
 
             if resp.status_code == 200:
                 if auto_fill:
@@ -285,7 +298,7 @@ def main(page: ft.Page):
                     return
 
                 nonlocal all_pws, matches
-                pw_resp2 = requests.get(f"{API_URL}/api/passwords")
+                pw_resp2 = session.get(f"{API_URL}/api/passwords")
                 all_pws = pw_resp2.json() if pw_resp2.status_code == 200 else []
                 matches.clear()
                 for p in all_pws:
@@ -325,7 +338,7 @@ def main(page: ft.Page):
 
             def _fetch():
                 try:
-                    resp = requests.get(f"{API_URL}/api/generate").json()
+                    resp = session.get(f"{API_URL}/api/generate").json()
                     gen_pwd = resp.get("generated_password")
                     lbl_ml_suggestion.value = f"\u2728 Suggested: {gen_pwd}\nScore: {resp.get('score')} \u00b7 TTL: {resp.get('ttl_days')} days"
                     lbl_ml_suggestion.color = ft.Colors.GREEN_400
@@ -396,8 +409,8 @@ def main(page: ft.Page):
             ft.TextButton("Save only", on_click=lambda e: on_save_edit(e, auto_fill=False), width=350)
         ]
 
+        page.controls.clear()
         page.add(list_view, edit_view)
-        page.window.visible = True
         page.update()
 
         if not matches and window_title:
@@ -411,6 +424,8 @@ def main(page: ft.Page):
             while True:
                 try:
                     if os.path.exists(TRIGGER_FILE):
+                        # Wait briefly so the async browser-URL fetch can update the file
+                        time.sleep(0.25)
                         with open(TRIGGER_FILE, 'r') as f:
                             params = json.load(f)
                         try:
@@ -420,7 +435,7 @@ def main(page: ft.Page):
                         load_popup(params)
                 except Exception:
                     pass
-                time.sleep(0.15)
+                time.sleep(0.05)
 
         threading.Thread(target=poll_trigger, daemon=True).start()
     else:
