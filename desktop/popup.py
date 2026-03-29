@@ -27,7 +27,9 @@ def main(page: ft.Page):
     standby = "--standby" in sys.argv
 
     if standby:
-        # Hide completely: off-screen + invisible + skip taskbar
+        # Belt-and-suspenders: FLET_APP_HIDDEN already suppresses creation,
+        # but set these too in case of flash on some systems
+        page.window.visible = False
         page.window.left = -32000
         page.window.top = -32000
         page.window.opacity = 0
@@ -36,6 +38,7 @@ def main(page: ft.Page):
         def on_window_event(e):
             if e.data == "close":
                 # Refuse close — just re-hide
+                page.window.visible = False
                 page.window.left = -32000
                 page.window.top = -32000
                 page.window.opacity = 0
@@ -147,6 +150,7 @@ def main(page: ft.Page):
             page.window.left = (sw - 380) // 2
             page.window.top = (sh - 480) // 2
             page.window.opacity = 1
+            page.window.visible = True
         else:
             page.window.visible = True
         page.update()
@@ -472,4 +476,7 @@ def main(page: ft.Page):
         })
 
 if __name__ == "__main__":
-    ft.app(target=main)
+    if "--standby" in sys.argv:
+        ft.app(target=main, view=ft.AppView.FLET_APP_HIDDEN)
+    else:
+        ft.app(target=main)
