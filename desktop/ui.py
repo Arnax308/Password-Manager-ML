@@ -356,12 +356,13 @@ def main(page: ft.Page):
     
     tf_note_title = ft.TextField(label="Note Title")
     tf_note_tags = ft.TextField(label="Tags (comma separated)", width=400)
-    tf_note_content = ft.TextField(label="Secure Content", multiline=True, width=400, height=200)
+    cb_hide_content = ft.Checkbox(label="Hide Note Content in Dashboard", value=True)
+    tf_note_content = ft.TextField(label="Secure Content", multiline=True, width=400, height=160)
     current_note_id = [None]
     
     def on_note_save(e):
         tags_list = [t.strip() for t in tf_note_tags.value.split(",") if t.strip()]
-        data = {"title": tf_note_title.value, "content": tf_note_content.value, "tags": tags_list}
+        data = {"title": tf_note_title.value, "content": tf_note_content.value, "tags": tags_list, "is_hidden": cb_hide_content.value}
         if current_note_id[0] is None:
             resp = client.post("/api/notes", json=data)
         else:
@@ -376,7 +377,7 @@ def main(page: ft.Page):
             
     edit_note_dialog = ft.AlertDialog(
         title=ft.Text("Secure Note"),
-        content=ft.Column([tf_note_title, tf_note_tags, tf_note_content], tight=True),
+        content=ft.Column([tf_note_title, tf_note_tags, cb_hide_content, tf_note_content], tight=True),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(edit_note_dialog, 'open', False) or page.update()),
             ft.ElevatedButton("Save", on_click=on_note_save)
@@ -388,12 +389,14 @@ def main(page: ft.Page):
             tf_note_title.value = n['title']
             tf_note_tags.value = ", ".join(n.get('tags', []))
             tf_note_content.value = n['content']
+            cb_hide_content.value = n.get('is_hidden', True)
             current_note_id[0] = n['id']
             edit_note_dialog.title.value = "Edit Secure Note"
         else:
             tf_note_title.value = ""
             tf_note_tags.value = ""
             tf_note_content.value = ""
+            cb_hide_content.value = True
             current_note_id[0] = None
             edit_note_dialog.title.value = "New Secure Note"
         edit_note_dialog.open = True
@@ -443,7 +446,10 @@ def main(page: ft.Page):
                 btn_del = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, on_click=lambda e, nid=n['id']: prompt_del_note(nid))
                 btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy Context", on_click=lambda e, c=n['content']: page.set_clipboard(c) or show_success("Note copied!"))
                 
-                tags_row = ft.Row([ft.Chip(label=ft.Text(t, size=10), color=ft.Colors.INDIGO_900) for t in n.get('tags', [])], wrap=True)
+                tags_row = ft.Row([ft.Container(content=ft.Text(t, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.INDIGO_700, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)) for t in n.get('tags', [])], wrap=True)
+                
+                is_hidden = n.get('is_hidden', True)
+                display_content = ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54, expand=True) if is_hidden else ft.Text(n['content'], size=14, color=ft.Colors.WHITE, expand=True, max_lines=4, overflow=ft.TextOverflow.ELLIPSIS)
                 
                 card = ft.Card(
                     elevation=3,
@@ -456,7 +462,7 @@ def main(page: ft.Page):
                             ]),
                             tags_row,
                             ft.Divider(),
-                            ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54, expand=True),
+                            display_content,
                             ft.Row([btn_copy, btn_edit, btn_del], alignment=ft.MainAxisAlignment.END)
                         ], expand=True)
                     )

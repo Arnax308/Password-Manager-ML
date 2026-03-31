@@ -100,17 +100,20 @@ class NoteSaveRequest(BaseModel):
     title: str
     content: str
     tags: List[str] = []
+    is_hidden: bool = True
 
 class NoteUpdateRequest(BaseModel):
     title: str
     content: str
     tags: List[str] = []
+    is_hidden: bool = True
 
 class NoteResponse(BaseModel):
     id: int
     title: str
     content: str
     tags: List[str]
+    is_hidden: bool
     created_at: str
     updated_at: str
 
@@ -515,7 +518,8 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
         req.title,
         base64.b64encode(ciphertext).decode('utf-8'),
         json.dumps(req.tags),
-        base64.b64encode(nonce).decode('utf-8')
+        base64.b64encode(nonce).decode('utf-8'),
+        req.is_hidden
     )
     notify_update()
     return {"message": "Note saved successfully"}
@@ -529,7 +533,8 @@ def update_note(item_id: int, req: NoteUpdateRequest, key: bytes = Depends(requi
         title=req.title,
         enc_content=base64.b64encode(ciphertext).decode('utf-8'),
         tags=json.dumps(req.tags),
-        nonce=base64.b64encode(nonce).decode('utf-8')
+        nonce=base64.b64encode(nonce).decode('utf-8'),
+        is_hidden=req.is_hidden
     )
     notify_update()
     return {"message": "Note updated successfully"}
@@ -564,6 +569,7 @@ def get_all_notes(key: bytes = Depends(require_auth)):
             title=r["title"],
             content=plaintext,
             tags=tags_list,
+            is_hidden=r.get("is_hidden", True),
             created_at=r["created_at"],
             updated_at=r["updated_at"]
         ))
