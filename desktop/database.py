@@ -23,11 +23,18 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             encrypted_content TEXT NOT NULL,
+            tags TEXT DEFAULT '[]',
             nonce TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
     ''')
+    
+    # Try to add tags column to existing db if it was created before
+    try:
+        cursor.execute("ALTER TABLE notes ADD COLUMN tags TEXT DEFAULT '[]'")
+    except sqlite3.OperationalError:
+        pass
     
     # Table to store encrypted passwords
     cursor.execute('''
@@ -139,26 +146,26 @@ def get_password_by_domain_user(domain: str, username: str):
         }
     return None
 
-def add_note(title: str, enc_content: str, nonce: str):
+def add_note(title: str, enc_content: str, tags: str, nonce: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
-        INSERT INTO notes (title, encrypted_content, nonce, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (title, enc_content, nonce, now, now))
+        INSERT INTO notes (title, encrypted_content, tags, nonce, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (title, enc_content, tags, nonce, now, now))
     conn.commit()
     conn.close()
 
-def update_note(n_id: int, title: str, enc_content: str, nonce: str):
+def update_note(n_id: int, title: str, enc_content: str, tags: str, nonce: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
         UPDATE notes 
-        SET title = ?, encrypted_content = ?, nonce = ?, updated_at = ?
+        SET title = ?, encrypted_content = ?, tags = ?, nonce = ?, updated_at = ?
         WHERE id = ?
-    ''', (title, enc_content, nonce, now, n_id))
+    ''', (title, enc_content, tags, nonce, now, n_id))
     conn.commit()
     conn.close()
 
@@ -172,7 +179,7 @@ def delete_note(n_id: int):
 def get_notes():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT id, title, encrypted_content, nonce, created_at, updated_at FROM notes')
+    cursor.execute('SELECT id, title, encrypted_content, tags, nonce, created_at, updated_at FROM notes')
     rows = cursor.fetchall()
     conn.close()
     
@@ -182,9 +189,10 @@ def get_notes():
             "id": r[0],
             "title": r[1],
             "encrypted_content": r[2],
-            "nonce": r[3],
-            "created_at": r[4],
-            "updated_at": r[5]
+            "tags": r[3],
+            "nonce": r[4],
+            "created_at": r[5],
+            "updated_at": r[6]
         })
     return results
 
@@ -192,7 +200,7 @@ def get_note_by_title(title: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, encrypted_content, nonce, created_at, updated_at
+        SELECT id, encrypted_content, tags, nonce, created_at, updated_at
         FROM notes 
         WHERE title = ?
     ''', (title,))
@@ -202,9 +210,10 @@ def get_note_by_title(title: str):
         return {
             "id": row[0],
             "encrypted_content": row[1],
-            "nonce": row[2],
-            "created_at": row[3],
-            "updated_at": row[4]
+            "tags": row[2],
+            "nonce": row[3],
+            "created_at": row[4],
+            "updated_at": row[5]
         }
     return None
 

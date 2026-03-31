@@ -99,15 +99,18 @@ class PasswordResponse(BaseModel):
 class NoteSaveRequest(BaseModel):
     title: str
     content: str
+    tags: List[str] = []
 
 class NoteUpdateRequest(BaseModel):
     title: str
     content: str
+    tags: List[str] = []
 
 class NoteResponse(BaseModel):
     id: int
     title: str
     content: str
+    tags: List[str]
     created_at: str
     updated_at: str
 
@@ -506,10 +509,12 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
         raise HTTPException(status_code=409, detail="Note with this title already exists. Use update instead.")
         
     ciphertext, nonce = encryption.encrypt_data(req.content, key)
+    import json
     
     database.add_note(
         req.title,
         base64.b64encode(ciphertext).decode('utf-8'),
+        json.dumps(req.tags),
         base64.b64encode(nonce).decode('utf-8')
     )
     notify_update()
@@ -518,10 +523,12 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
 @app.put("/api/notes/{item_id}")
 def update_note(item_id: int, req: NoteUpdateRequest, key: bytes = Depends(require_auth)):
     ciphertext, nonce = encryption.encrypt_data(req.content, key)
+    import json
     database.update_note(
         n_id=item_id,
         title=req.title,
         enc_content=base64.b64encode(ciphertext).decode('utf-8'),
+        tags=json.dumps(req.tags),
         nonce=base64.b64encode(nonce).decode('utf-8')
     )
     notify_update()
@@ -537,6 +544,7 @@ def remove_note(item_id: int, key: bytes = Depends(require_auth)):
 def get_all_notes(key: bytes = Depends(require_auth)):
     rows = database.get_notes()
     results = []
+    import json
     for r in rows:
         ciphertext = base64.b64decode(r["encrypted_content"])
         nonce = base64.b64decode(r["nonce"])
@@ -545,10 +553,17 @@ def get_all_notes(key: bytes = Depends(require_auth)):
         except Exception:
             continue
             
+        tags_list = []
+        try:
+            tags_list = json.loads(r["tags"])
+        except:
+            pass
+            
         results.append(NoteResponse(
             id=r["id"],
             title=r["title"],
             content=plaintext,
+            tags=tags_list,
             created_at=r["created_at"],
             updated_at=r["updated_at"]
         ))

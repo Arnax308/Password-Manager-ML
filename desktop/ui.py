@@ -345,97 +345,23 @@ def main(page: ft.Page):
     )
 
     # --- UI Components: Audit Dashboard Tab ---
-    lbl_audit_total = ft.Text("Total Passwords: 0", size=16, weight=ft.FontWeight.BOLD)
-    lbl_audit_weak = ft.Text("Weak Passwords: 0", size=16, color=ft.Colors.RED_400)
-    lbl_audit_reused = ft.Text("Reused Passwords: 0", size=16, color=ft.Colors.ORANGE_400)
-    lbl_audit_expired = ft.Text("Expired Passwords: 0", size=16, color=ft.Colors.RED_400)
-    audit_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=10)
-
-    def load_audit():
-        audit_list.controls.clear()
-        resp = client.get("/api/passwords")
-        if resp.status_code == 200:
-            pws = resp.json()
-            total = len(pws)
-            weak = [p for p in pws if p["strength_score"] < 0.5]
-            expired = [p for p in pws if p["is_decayed"]]
-            
-            # Find Reused
-            pw_counts = {}
-            for p in pws:
-                pwd = p["password"]
-                pw_counts[pwd] = pw_counts.get(pwd, []) + [p]
-            
-            reused = []
-            for pwd, instances in pw_counts.items():
-                if len(instances) > 1:
-                    reused.extend(instances)
-                    
-            lbl_audit_total.value = f"Total Passwords: {total}"
-            lbl_audit_weak.value = f"Weak Passwords (Score < 0.5): {len(weak)}"
-            lbl_audit_reused.value = f"Reused Passwords: {len(reused)}"
-            lbl_audit_expired.value = f"Expired Passwords: {len(expired)}"
-            
-            # Populate Actionable Items
-            flagged = {p["id"]: p for p in weak + expired + reused}.values()
-            
-            if not flagged:
-                audit_list.controls.append(
-                    ft.Container(
-                        content=ft.Row([ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN), ft.Text("All clear! No actionable items found.")]),
-                        padding=20, border_radius=8, bgcolor=ft.Colors.GREEN_900
-                    )
-                )
-            else:
-                for p in flagged:
-                    issues = []
-                    if p in weak: issues.append("Weak")
-                    if p in expired: issues.append("Expired")
-                    if p in reused: issues.append("Reused")
-                    
-                    audit_list.controls.append(
-                        ft.Card(
-                            elevation=2,
-                            content=ft.Container(
-                                padding=15,
-                                content=ft.Row([
-                                    ft.Icon(ft.Icons.WARNING, color=ft.Colors.RED_400),
-                                    ft.Column([
-                                        ft.Text(f"{p['domain']} ({p['username']})", weight=ft.FontWeight.BOLD),
-                                        ft.Text(", ".join(issues), color=ft.Colors.RED_300, size=12)
-                                    ], expand=True),
-                                    ft.IconButton(ft.Icons.EDIT, tooltip="Edit", on_click=lambda e, pw=p: show_edit_dialog(pw))
-                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-                            )
-                        )
-                    )
-        page.update()
-
-    btn_audit_refresh = ft.ElevatedButton("Run Vault Audit", icon=ft.Icons.ANALYTICS, on_click=lambda e: load_audit())
-
-    audit_view = ft.Container(
-        content=ft.Column([
-            ft.Text("Vault Audit Dashboard", size=24, weight=ft.FontWeight.BOLD),
-            ft.Divider(),
-            ft.Row([lbl_audit_total, lbl_audit_weak, lbl_audit_reused, lbl_audit_expired], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.Container(height=10),
-            btn_audit_refresh,
-            ft.Divider(),
-            ft.Text("Actionable Items", size=18, weight=ft.FontWeight.W_500),
-            audit_list
-        ], expand=True),
-        padding=30, expand=True
-    )
-
     # --- UI Components: Secure Notes Tab ---
     notes_grid = ft.GridView(expand=True, max_extent=400, child_aspect_ratio=1.5, spacing=15, run_spacing=15)
     
+    tf_notes_search = ft.TextField(
+        label="Search Notes (by Title or Tag)...",
+        prefix_icon=ft.Icons.SEARCH,
+        on_change=lambda e: refresh_notes(e.control.value),
+    )
+    
     tf_note_title = ft.TextField(label="Note Title")
+    tf_note_tags = ft.TextField(label="Tags (comma separated)", width=400)
     tf_note_content = ft.TextField(label="Secure Content", multiline=True, width=400, height=200)
     current_note_id = [None]
     
     def on_note_save(e):
-        data = {"title": tf_note_title.value, "content": tf_note_content.value}
+        tags_list = [t.strip() for t in tf_note_tags.value.split(",") if t.strip()]
+        data = {"title": tf_note_title.value, "content": tf_note_content.value, "tags": tags_list}
         if current_note_id[0] is None:
             resp = client.post("/api/notes", json=data)
         else:
@@ -444,13 +370,13 @@ def main(page: ft.Page):
         if resp.status_code == 200:
             edit_note_dialog.open = False
             show_success("Note saved successfully!")
-            refresh_notes()
+            refresh_notes(tf_notes_search.value)
         else:
             show_error(f"Error: {resp.json().get('detail')}")
             
     edit_note_dialog = ft.AlertDialog(
         title=ft.Text("Secure Note"),
-        content=ft.Column([tf_note_title, tf_note_content], tight=True),
+        content=ft.Column([tf_note_title, tf_note_tags, tf_note_content], tight=True),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(edit_note_dialog, 'open', False) or page.update()),
             ft.ElevatedButton("Save", on_click=on_note_save)
@@ -460,11 +386,13 @@ def main(page: ft.Page):
     def show_edit_note(n=None):
         if n:
             tf_note_title.value = n['title']
+            tf_note_tags.value = ", ".join(n.get('tags', []))
             tf_note_content.value = n['content']
             current_note_id[0] = n['id']
             edit_note_dialog.title.value = "Edit Secure Note"
         else:
             tf_note_title.value = ""
+            tf_note_tags.value = ""
             tf_note_content.value = ""
             current_note_id[0] = None
             edit_note_dialog.title.value = "New Secure Note"
@@ -498,14 +426,24 @@ def main(page: ft.Page):
         
     page.overlay.extend([edit_note_dialog, del_note_dialog])
 
-    def refresh_notes():
+    def refresh_notes(search_query=""):
         notes_grid.controls.clear()
         resp = client.get("/api/notes")
         if resp.status_code == 200:
-            for n in resp.json():
+            notes = resp.json()
+            sq = search_query.lower() if search_query else None
+            
+            for n in notes:
+                if sq:
+                    searchable = n['title'].lower() + " " + " ".join(n.get('tags', [])).lower()
+                    if sq not in searchable:
+                        continue
+                        
                 btn_edit = ft.IconButton(ft.Icons.EDIT, tooltip="Edit", on_click=lambda e, note=n: show_edit_note(note))
                 btn_del = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, on_click=lambda e, nid=n['id']: prompt_del_note(nid))
                 btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy Context", on_click=lambda e, c=n['content']: page.set_clipboard(c) or show_success("Note copied!"))
+                
+                tags_row = ft.Row([ft.Chip(label=ft.Text(t, size=10), color=ft.Colors.INDIGO_900) for t in n.get('tags', [])], wrap=True)
                 
                 card = ft.Card(
                     elevation=3,
@@ -516,6 +454,7 @@ def main(page: ft.Page):
                                 ft.Icon(ft.Icons.SUBJECT, color=ft.Colors.AMBER_400),
                                 ft.Text(n['title'], weight=ft.FontWeight.BOLD, size=18, expand=True)
                             ]),
+                            tags_row,
                             ft.Divider(),
                             ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54, expand=True),
                             ft.Row([btn_copy, btn_edit, btn_del], alignment=ft.MainAxisAlignment.END)
@@ -532,6 +471,7 @@ def main(page: ft.Page):
                 ft.Container(expand=True),
                 ft.ElevatedButton("Add Note", icon=ft.Icons.ADD, on_click=lambda e: show_edit_note(None)),
             ]),
+            tf_notes_search,
             ft.Divider(),
             notes_grid
         ], expand=True),
@@ -551,7 +491,8 @@ def main(page: ft.Page):
             ft.Text("Provide context so the ML engine can penalize passwords built with your personal info.", color=ft.Colors.WHITE70),
             tf_settings_name,
             tf_settings_words,
-            ft.ElevatedButton("Save Settings", on_click=save_settings, icon=ft.Icons.SAVE),
+            ft.Container(height=10),
+            ft.ElevatedButton("Save Settings", on_click=save_settings, icon=ft.Icons.SAVE, width=400, height=60, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10))),
             ft.Container(height=40),
             ft.Text("Danger Zone", size=18, weight=ft.FontWeight.W_500, color=ft.Colors.RED_300),
             ft.Row([
@@ -627,6 +568,12 @@ def main(page: ft.Page):
             passwords = resp.json()
             good, decayed = 0, 0
             
+            # Map for checking reuse
+            pw_counts = {}
+            for p in passwords:
+                pwd = p["password"]
+                pw_counts[pwd] = pw_counts.get(pwd, 0) + 1
+            
             # Group by domain
             grouped = {}
             sq = search_query.lower() if search_query else None
@@ -665,6 +612,18 @@ def main(page: ft.Page):
                     else:
                         ttl_text = ft.Text(f"Expired {-remaining_days} days ago", size=10, color=ft.Colors.RED_300)
                         
+                    # Calculate Audit Flags
+                    issues = []
+                    score = pw.get("strength_score", 1.0)
+                    if score < 0.5:
+                        issues.append(ft.Container(content=ft.Text("Weak", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_700, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+                    if pw_counts.get(pw["password"], 0) > 1:
+                        issues.append(ft.Container(content=ft.Text("Reused", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.ORANGE_800, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+                    if remaining_days <= 0:
+                        issues.append(ft.Container(content=ft.Text("Expired", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_900, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+                        
+                    issues_row = ft.Row(issues, spacing=5, wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER) if issues else ft.Container()
+                        
                     btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy", icon_size=16, on_click=lambda e, p=pw['password']: page.set_clipboard(p) or show_success("Copied to clipboard"))
                     btn_edit = ft.IconButton(ft.Icons.EDIT, tooltip="Edit", icon_size=16, on_click=lambda e, p=pw: show_edit_dialog(p))
                     btn_delete = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, icon_size=16, on_click=lambda e, pid=pw['id']: prompt_delete(pid))
@@ -672,7 +631,8 @@ def main(page: ft.Page):
                     account_rows.append(ft.Row([
                         ft.Column([
                             ft.Text(pw['username'], size=12, weight=ft.FontWeight.W_500),
-                            ttl_text
+                            ttl_text,
+                            issues_row
                         ], expand=True, spacing=1),
                         ft.Row([btn_edit, btn_copy, btn_delete], spacing=0)
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
@@ -730,9 +690,6 @@ def main(page: ft.Page):
         elif idx == 2:
             main_content.content = generator_view
         elif idx == 3:
-            main_content.content = audit_view
-            load_audit()
-        elif idx == 4:
             main_content.content = settings_view
             load_settings()
         page.update()
@@ -744,7 +701,6 @@ def main(page: ft.Page):
             ft.NavigationRailDestination(icon=ft.Icons.SHIELD_OUTLINED, selected_icon=ft.Icons.SHIELD, label="Vault"),
             ft.NavigationRailDestination(icon=ft.Icons.SUBJECT_OUTLINED, selected_icon=ft.Icons.SUBJECT, label="Notes"),
             ft.NavigationRailDestination(icon=ft.Icons.PASSWORD_OUTLINED, selected_icon=ft.Icons.PASSWORD, label="Generator"),
-            ft.NavigationRailDestination(icon=ft.Icons.ANALYTICS_OUTLINED, selected_icon=ft.Icons.ANALYTICS, label="Audit"),
             ft.NavigationRailDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="Settings"),
         ], on_change=on_nav_change, expand=False
     )
