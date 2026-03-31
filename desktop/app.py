@@ -96,6 +96,21 @@ class PasswordResponse(BaseModel):
     strength_score: float
     is_decayed: bool
 
+class NoteSaveRequest(BaseModel):
+    title: str
+    content: str
+
+class NoteUpdateRequest(BaseModel):
+    title: str
+    content: str
+
+class NoteResponse(BaseModel):
+    id: int
+    title: str
+    content: str
+    created_at: str
+    updated_at: str
+
 @app.on_event("startup")
 def startup():
     database.init_db()
@@ -179,23 +194,46 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
         n = base64.b64decode(r["nonce"])
         try:
             pt = encryption.decrypt_data(c, n, key)
-            decrypted_items.append((r["id"], pt, r["ttl_days"], r["strength_score"]))
+            decrypted_items.append((r["id"], r["domain"], r["username"], pt, r["ttl_days"], r["strength_score"]))
         except Exception:
             pass # Skip corrupted
+            
+    # 3b. Decrypt all notes
+    note_rows = database.get_notes()
+    decrypted_notes = []
+    for nr in note_rows:
+        nc = base64.b64decode(nr["encrypted_content"])
+        nn = base64.b64decode(nr["nonce"])
+        try:
+            n_pt = encryption.decrypt_data(nc, nn, key)
+            decrypted_notes.append((nr["id"], nr["title"], n_pt))
+        except Exception:
+            pass
             
     # 4. Generate new master derivation
     new_salt, new_tc, new_tn = encryption.setup_vault_keys(req.new_password)
     new_key = encryption.derive_key(req.new_password, new_salt)
     
     # 5. Re-encrypt and update DB
-    for pid, pt, ttl, score in decrypted_items:
+    for pid, domain, username, pt, ttl, score in decrypted_items:
         new_c, new_n = encryption.encrypt_data(pt, new_key)
         database.update_password(
             pid,
+            domain,
+            username,
             base64.b64encode(new_c).decode('utf-8'),
             base64.b64encode(new_n).decode('utf-8'),
             ttl,
             score
+        )
+        
+    for nid, title, n_pt in decrypted_notes:
+        n_new_c, n_new_n = encryption.encrypt_data(n_pt, new_key)
+        database.update_note(
+            nid,
+            title,
+            base64.b64encode(n_new_c).decode('utf-8'),
+            base64.b64encode(n_new_n).decode('utf-8')
         )
         
     # 6. Update config
@@ -216,9 +254,10 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
 @app.post("/api/reset")
 def reset_vault():
     import sqlite3
-    conn = sqlite3.connect("vault.db")
+    conn = sqlite3.connect(database.DB_PATH)
     conn.execute("DELETE FROM config")
     conn.execute("DELETE FROM passwords")
+    conn.execute("DELETE FROM notes")
     conn.commit()
     conn.close()
     
@@ -459,6 +498,61 @@ def update_settings(req: SettingsUpdateRequest):
     database.save_config('hotkey', req.hotkey.strip())
     database.save_config('popup_position', req.popup_position.strip())
     return {"message": "Settings updated"}
+
+@app.post("/api/notes")
+def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
+    existing = database.get_note_by_title(req.title)
+    if existing:
+        raise HTTPException(status_code=409, detail="Note with this title already exists. Use update instead.")
+        
+    ciphertext, nonce = encryption.encrypt_data(req.content, key)
+    
+    database.add_note(
+        req.title,
+        base64.b64encode(ciphertext).decode('utf-8'),
+        base64.b64encode(nonce).decode('utf-8')
+    )
+    notify_update()
+    return {"message": "Note saved successfully"}
+
+@app.put("/api/notes/{item_id}")
+def update_note(item_id: int, req: NoteUpdateRequest, key: bytes = Depends(require_auth)):
+    ciphertext, nonce = encryption.encrypt_data(req.content, key)
+    database.update_note(
+        n_id=item_id,
+        title=req.title,
+        enc_content=base64.b64encode(ciphertext).decode('utf-8'),
+        nonce=base64.b64encode(nonce).decode('utf-8')
+    )
+    notify_update()
+    return {"message": "Note updated successfully"}
+
+@app.delete("/api/notes/{item_id}")
+def remove_note(item_id: int, key: bytes = Depends(require_auth)):
+    database.delete_note(item_id)
+    notify_update()
+    return {"message": "Note deleted successfully"}
+
+@app.get("/api/notes", response_model=List[NoteResponse])
+def get_all_notes(key: bytes = Depends(require_auth)):
+    rows = database.get_notes()
+    results = []
+    for r in rows:
+        ciphertext = base64.b64decode(r["encrypted_content"])
+        nonce = base64.b64decode(r["nonce"])
+        try:
+            plaintext = encryption.decrypt_data(ciphertext, nonce, key)
+        except Exception:
+            continue
+            
+        results.append(NoteResponse(
+            id=r["id"],
+            title=r["title"],
+            content=plaintext,
+            created_at=r["created_at"],
+            updated_at=r["updated_at"]
+        ))
+    return results
 
 if __name__ == "__main__":
     import uvicorn

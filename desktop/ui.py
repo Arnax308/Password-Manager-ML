@@ -291,6 +291,253 @@ def main(page: ft.Page):
 
     page.overlay.extend([change_dialog, reset_dialog, edit_dialog, delete_confirm_dialog])
 
+    # --- UI Components: Password Generator Tab ---
+    gen_length = ft.Slider(min=8, max=64, value=16, label="{value} chars", divisions=56)
+    gen_upper = ft.Switch(label="A-Z", value=True)
+    gen_lower = ft.Switch(label="a-z", value=True)
+    gen_numbers = ft.Switch(label="0-9", value=True)
+    gen_symbols = ft.Switch(label="!@#$", value=True)
+    tf_generated = ft.TextField(label="Generated Password", read_only=True, expand=True, text_size=20)
+    
+    def on_generate_click(e):
+        import string, random
+        chars = ""
+        if gen_upper.value: chars += string.ascii_uppercase
+        if gen_lower.value: chars += string.ascii_lowercase
+        if gen_numbers.value: chars += string.digits
+        if gen_symbols.value: chars += string.punctuation
+        if not chars:
+            show_error("Select at least one character type!")
+            return
+        length = int(gen_length.value)
+        pwd = "".join(random.choice(chars) for _ in range(length))
+        tf_generated.value = pwd
+        page.update()
+        
+    btn_generate = ft.ElevatedButton("Offline Generate", icon=ft.Icons.REFRESH, on_click=on_generate_click, height=50)
+    btn_copy_gen = ft.IconButton(ft.Icons.COPY, on_click=lambda e: page.set_clipboard(tf_generated.value) or show_success("Copied generated password!"), icon_size=24)
+    
+    def on_smart_gen_click(e):
+        resp = client.get("/api/generate")
+        if resp.status_code == 200:
+            data = resp.json()
+            tf_generated.value = data["generated_password"]
+            score = data["score"]
+            show_success(f"Smart ML Generated! Style Score: {score:.2f}")
+            page.update()
+        else:
+            show_error("Failed to generate smart password")
+            
+    btn_smart_gen = ft.ElevatedButton("Smart ML Generate", icon=ft.Icons.AUTO_AWESOME, on_click=on_smart_gen_click, height=50)
+
+    generator_view = ft.Container(
+        content=ft.Column([
+            ft.Text("Password Generator", size=24, weight=ft.FontWeight.BOLD),
+            ft.Divider(),
+            ft.Text("Password Options", size=18, weight=ft.FontWeight.W_500),
+            ft.Row([ft.Text("Length:"), gen_length], alignment=ft.MainAxisAlignment.START),
+            ft.Row([gen_upper, gen_lower, gen_numbers, gen_symbols], alignment=ft.MainAxisAlignment.START),
+            ft.Container(height=20),
+            ft.Row([tf_generated, btn_copy_gen], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Row([btn_generate, btn_smart_gen], alignment=ft.MainAxisAlignment.START),
+        ]),
+        padding=30, expand=True
+    )
+
+    # --- UI Components: Audit Dashboard Tab ---
+    lbl_audit_total = ft.Text("Total Passwords: 0", size=16, weight=ft.FontWeight.BOLD)
+    lbl_audit_weak = ft.Text("Weak Passwords: 0", size=16, color=ft.Colors.RED_400)
+    lbl_audit_reused = ft.Text("Reused Passwords: 0", size=16, color=ft.Colors.ORANGE_400)
+    lbl_audit_expired = ft.Text("Expired Passwords: 0", size=16, color=ft.Colors.RED_400)
+    audit_list = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=10)
+
+    def load_audit():
+        audit_list.controls.clear()
+        resp = client.get("/api/passwords")
+        if resp.status_code == 200:
+            pws = resp.json()
+            total = len(pws)
+            weak = [p for p in pws if p["strength_score"] < 0.5]
+            expired = [p for p in pws if p["is_decayed"]]
+            
+            # Find Reused
+            pw_counts = {}
+            for p in pws:
+                pwd = p["password"]
+                pw_counts[pwd] = pw_counts.get(pwd, []) + [p]
+            
+            reused = []
+            for pwd, instances in pw_counts.items():
+                if len(instances) > 1:
+                    reused.extend(instances)
+                    
+            lbl_audit_total.value = f"Total Passwords: {total}"
+            lbl_audit_weak.value = f"Weak Passwords (Score < 0.5): {len(weak)}"
+            lbl_audit_reused.value = f"Reused Passwords: {len(reused)}"
+            lbl_audit_expired.value = f"Expired Passwords: {len(expired)}"
+            
+            # Populate Actionable Items
+            flagged = {p["id"]: p for p in weak + expired + reused}.values()
+            
+            if not flagged:
+                audit_list.controls.append(
+                    ft.Container(
+                        content=ft.Row([ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN), ft.Text("All clear! No actionable items found.")]),
+                        padding=20, border_radius=8, bgcolor=ft.Colors.GREEN_900
+                    )
+                )
+            else:
+                for p in flagged:
+                    issues = []
+                    if p in weak: issues.append("Weak")
+                    if p in expired: issues.append("Expired")
+                    if p in reused: issues.append("Reused")
+                    
+                    audit_list.controls.append(
+                        ft.Card(
+                            elevation=2,
+                            content=ft.Container(
+                                padding=15,
+                                content=ft.Row([
+                                    ft.Icon(ft.Icons.WARNING, color=ft.Colors.RED_400),
+                                    ft.Column([
+                                        ft.Text(f"{p['domain']} ({p['username']})", weight=ft.FontWeight.BOLD),
+                                        ft.Text(", ".join(issues), color=ft.Colors.RED_300, size=12)
+                                    ], expand=True),
+                                    ft.IconButton(ft.Icons.EDIT, tooltip="Edit", on_click=lambda e, pw=p: show_edit_dialog(pw))
+                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                            )
+                        )
+                    )
+        page.update()
+
+    btn_audit_refresh = ft.ElevatedButton("Run Vault Audit", icon=ft.Icons.ANALYTICS, on_click=lambda e: load_audit())
+
+    audit_view = ft.Container(
+        content=ft.Column([
+            ft.Text("Vault Audit Dashboard", size=24, weight=ft.FontWeight.BOLD),
+            ft.Divider(),
+            ft.Row([lbl_audit_total, lbl_audit_weak, lbl_audit_reused, lbl_audit_expired], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Container(height=10),
+            btn_audit_refresh,
+            ft.Divider(),
+            ft.Text("Actionable Items", size=18, weight=ft.FontWeight.W_500),
+            audit_list
+        ], expand=True),
+        padding=30, expand=True
+    )
+
+    # --- UI Components: Secure Notes Tab ---
+    notes_grid = ft.GridView(expand=True, max_extent=400, child_aspect_ratio=1.5, spacing=15, run_spacing=15)
+    
+    tf_note_title = ft.TextField(label="Note Title")
+    tf_note_content = ft.TextField(label="Secure Content", multiline=True, width=400, height=200)
+    current_note_id = [None]
+    
+    def on_note_save(e):
+        data = {"title": tf_note_title.value, "content": tf_note_content.value}
+        if current_note_id[0] is None:
+            resp = client.post("/api/notes", json=data)
+        else:
+            resp = client.put(f"/api/notes/{current_note_id[0]}", json=data)
+            
+        if resp.status_code == 200:
+            edit_note_dialog.open = False
+            show_success("Note saved successfully!")
+            refresh_notes()
+        else:
+            show_error(f"Error: {resp.json().get('detail')}")
+            
+    edit_note_dialog = ft.AlertDialog(
+        title=ft.Text("Secure Note"),
+        content=ft.Column([tf_note_title, tf_note_content], tight=True),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: setattr(edit_note_dialog, 'open', False) or page.update()),
+            ft.ElevatedButton("Save", on_click=on_note_save)
+        ]
+    )
+
+    def show_edit_note(n=None):
+        if n:
+            tf_note_title.value = n['title']
+            tf_note_content.value = n['content']
+            current_note_id[0] = n['id']
+            edit_note_dialog.title.value = "Edit Secure Note"
+        else:
+            tf_note_title.value = ""
+            tf_note_content.value = ""
+            current_note_id[0] = None
+            edit_note_dialog.title.value = "New Secure Note"
+        edit_note_dialog.open = True
+        page.update()
+
+    current_del_note_id = [None]
+    def on_del_note_confirm(e):
+        if current_del_note_id[0]:
+            resp = client.delete(f"/api/notes/{current_del_note_id[0]}")
+            if resp.status_code == 200:
+                del_note_dialog.open = False
+                show_success("Note deleted.")
+                refresh_notes()
+            else:
+                show_error("Failed to delete note.")
+
+    del_note_dialog = ft.AlertDialog(
+        title=ft.Text("Confirm Delete"),
+        content=ft.Text("Are you sure you want to permanently delete this secure note?"),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: setattr(del_note_dialog, 'open', False) or page.update()),
+            ft.ElevatedButton("Delete", color=ft.Colors.RED, on_click=on_del_note_confirm)
+        ]
+    )
+    
+    def prompt_del_note(nid):
+        current_del_note_id[0] = nid
+        del_note_dialog.open = True
+        page.update()
+        
+    page.overlay.extend([edit_note_dialog, del_note_dialog])
+
+    def refresh_notes():
+        notes_grid.controls.clear()
+        resp = client.get("/api/notes")
+        if resp.status_code == 200:
+            for n in resp.json():
+                btn_edit = ft.IconButton(ft.Icons.EDIT, tooltip="Edit", on_click=lambda e, note=n: show_edit_note(note))
+                btn_del = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, on_click=lambda e, nid=n['id']: prompt_del_note(nid))
+                btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy Context", on_click=lambda e, c=n['content']: page.set_clipboard(c) or show_success("Note copied!"))
+                
+                card = ft.Card(
+                    elevation=3,
+                    content=ft.Container(
+                        padding=15,
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Icon(ft.Icons.SUBJECT, color=ft.Colors.AMBER_400),
+                                ft.Text(n['title'], weight=ft.FontWeight.BOLD, size=18, expand=True)
+                            ]),
+                            ft.Divider(),
+                            ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54, expand=True),
+                            ft.Row([btn_copy, btn_edit, btn_del], alignment=ft.MainAxisAlignment.END)
+                        ], expand=True)
+                    )
+                )
+                notes_grid.controls.append(card)
+        page.update()
+
+    notes_view = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Text("Secure Notes", size=24, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                ft.ElevatedButton("Add Note", icon=ft.Icons.ADD, on_click=lambda e: show_edit_note(None)),
+            ]),
+            ft.Divider(),
+            notes_grid
+        ], expand=True),
+        padding=30, expand=True
+    )
+
     settings_view = ft.Container(
         content=ft.Column([
             ft.Text("Application Settings", size=24, weight=ft.FontWeight.BOLD),
@@ -474,9 +721,20 @@ def main(page: ft.Page):
     # --- Main App Layout Architecture ---
     def on_nav_change(e):
         idx = e.control.selected_index
-        main_content.content = vault_view if idx == 0 else settings_view
-        if idx == 0: refresh_vault()
-        elif idx == 1: load_settings()
+        if idx == 0:
+            main_content.content = vault_view
+            refresh_vault()
+        elif idx == 1:
+            main_content.content = notes_view
+            refresh_notes()
+        elif idx == 2:
+            main_content.content = generator_view
+        elif idx == 3:
+            main_content.content = audit_view
+            load_audit()
+        elif idx == 4:
+            main_content.content = settings_view
+            load_settings()
         page.update()
 
     nav_rail = ft.NavigationRail(
@@ -484,6 +742,9 @@ def main(page: ft.Page):
         min_width=100, min_extended_width=400, group_alignment=-0.9,
         destinations=[
             ft.NavigationRailDestination(icon=ft.Icons.SHIELD_OUTLINED, selected_icon=ft.Icons.SHIELD, label="Vault"),
+            ft.NavigationRailDestination(icon=ft.Icons.SUBJECT_OUTLINED, selected_icon=ft.Icons.SUBJECT, label="Notes"),
+            ft.NavigationRailDestination(icon=ft.Icons.PASSWORD_OUTLINED, selected_icon=ft.Icons.PASSWORD, label="Generator"),
+            ft.NavigationRailDestination(icon=ft.Icons.ANALYTICS_OUTLINED, selected_icon=ft.Icons.ANALYTICS, label="Audit"),
             ft.NavigationRailDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="Settings"),
         ], on_change=on_nav_change, expand=False
     )

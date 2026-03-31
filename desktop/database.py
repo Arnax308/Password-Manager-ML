@@ -3,7 +3,7 @@ import os
 import json
 from datetime import datetime
 
-DB_PATH = "vault.db"
+DB_PATH = os.environ.get("LOCALPASS_DB", "vault.db")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -14,6 +14,18 @@ def init_db():
         CREATE TABLE IF NOT EXISTS config (
             key TEXT PRIMARY KEY,
             value TEXT
+        )
+    ''')
+    
+    # Table to store secure notes
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            encrypted_content TEXT NOT NULL,
+            nonce TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )
     ''')
     
@@ -124,6 +136,75 @@ def get_password_by_domain_user(domain: str, username: str):
             "updated_at": row[4],
             "ttl_days": row[5],
             "strength_score": row[6]
+        }
+    return None
+
+def add_note(title: str, enc_content: str, nonce: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    cursor.execute('''
+        INSERT INTO notes (title, encrypted_content, nonce, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (title, enc_content, nonce, now, now))
+    conn.commit()
+    conn.close()
+
+def update_note(n_id: int, title: str, enc_content: str, nonce: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    cursor.execute('''
+        UPDATE notes 
+        SET title = ?, encrypted_content = ?, nonce = ?, updated_at = ?
+        WHERE id = ?
+    ''', (title, enc_content, nonce, now, n_id))
+    conn.commit()
+    conn.close()
+
+def delete_note(n_id: int):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM notes WHERE id = ?', (n_id,))
+    conn.commit()
+    conn.close()
+
+def get_notes():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, title, encrypted_content, nonce, created_at, updated_at FROM notes')
+    rows = cursor.fetchall()
+    conn.close()
+    
+    results = []
+    for r in rows:
+        results.append({
+            "id": r[0],
+            "title": r[1],
+            "encrypted_content": r[2],
+            "nonce": r[3],
+            "created_at": r[4],
+            "updated_at": r[5]
+        })
+    return results
+
+def get_note_by_title(title: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, encrypted_content, nonce, created_at, updated_at
+        FROM notes 
+        WHERE title = ?
+    ''', (title,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {
+            "id": row[0],
+            "encrypted_content": row[1],
+            "nonce": row[2],
+            "created_at": row[3],
+            "updated_at": row[4]
         }
     return None
 

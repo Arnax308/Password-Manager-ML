@@ -1,7 +1,9 @@
+import os
+os.environ["LOCALPASS_DB"] = "test_vault.db"
+
 import encryption
 from ml_engine import ml_engine
 import database
-import os
 
 print("--- Testing Encryption Engine ---")
 salt, test_c, test_n = encryption.setup_vault_keys("MySuperSecretMasterPass")
@@ -68,14 +70,10 @@ import os
 import database
 
 # Clean up DB for a fresh API test
-if os.path.exists("vault.db"):
-    # Clear config and passwords tables
-    import sqlite3
-    conn = sqlite3.connect("vault.db")
-    conn.execute("DELETE FROM config")
-    conn.execute("DELETE FROM passwords")
-    conn.commit()
-    conn.close()
+if os.path.exists("test_vault.db"):
+    os.remove("test_vault.db")
+
+database.init_db()
 
 from fastapi.testclient import TestClient
 client = TestClient(app.app)
@@ -126,7 +124,36 @@ if reset_resp.status_code == 200:
 else:
     print(f"Failed to reset vault: {reset_resp.text}")
 
+# Re-setup for notes test
+client.post("/api/setup", json={"master_password": "NewSecretMaster!99", "user_name": "Arnav Test"})
+
+print("\n--- Testing Secure Notes API ---")
+# Create Note
+note_resp = client.post("/api/notes", json={"title": "Bank Recovery Codes", "content": "1234-5678-9012"})
+print(f"Create Note (Should pass -> 200): {note_resp.status_code}")
+
+# Get Notes
+get_notes = client.get("/api/notes")
+if get_notes.status_code == 200 and len(get_notes.json()) > 0:
+    note = get_notes.json()[0]
+    print(f"Get Note Match: {note['title'] == 'Bank Recovery Codes' and note['content'] == '1234-5678-9012'}")
+    
+    # Update Note
+    update_resp = client.put(f"/api/notes/{note['id']}", json={"title": "Bank Recovery Codes", "content": "9999-0000-1111"})
+    print(f"Update Note (Should pass -> 200): {update_resp.status_code}")
+    
+    # Get again
+    updated_note = client.get("/api/notes").json()[0]
+    print(f"Update Note Match: {updated_note['content'] == '9999-0000-1111'}")
+    
+    # Delete Note
+    del_resp = client.delete(f"/api/notes/{note['id']}")
+    print(f"Delete Note (Should pass -> 200): {del_resp.status_code}")
+    
+    empty_notes = client.get("/api/notes").json()
+    print(f"Delete Note Match (Should be empty): {len(empty_notes) == 0}")
+
 final_status = client.get("/api/status").json()
-print(f"Is Vault Setup Post-Reset? (Should be False): {final_status['is_setup']}")
+print(f"Is Vault Setup? : {final_status['is_setup']}")
 
 print("\nAll Backend Unit Tests Completed")
