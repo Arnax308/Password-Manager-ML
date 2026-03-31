@@ -20,8 +20,10 @@ def main(page: ft.Page):
     page.window.height = 480
     page.window.frameless = True
     page.window.always_on_top = True
+    page.window.skip_task_bar = True   # don't steal taskbar focus
+    page.window.focus = False          # don't steal keyboard focus on show
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 15
+    page.padding = 0
     page.theme = ft.Theme(color_scheme_seed=ft.Colors.INDIGO)
 
     def dismiss():
@@ -98,28 +100,62 @@ def main(page: ft.Page):
         guessed_pass = parts[1].strip() if len(parts) > 1 else ""
 
         API_URL = "http://127.0.0.1:5000"
+        
+        try:
+            settings_resp = session.get(f"{API_URL}/api/settings").json()
+            pos = settings_resp.get("popup_position", "top_right")
+        except:
+            pos = "top_right"
 
-        drag_bar = ft.WindowDragArea(
-            ft.Row([
-                ft.Icon(ft.Icons.SHIELD, color=ft.Colors.INDIGO_400),
-                ft.Text("AutoFill Request", weight=ft.FontWeight.BOLD, expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=16, on_click=lambda e: dismiss())
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            expand=True
-        )
-        app_bar = ft.Row([drag_bar], expand=True)
+        def make_drag_bar(show_back=False):
+            """Returns a WindowDragArea header row. If show_back=True, shows back arrow."""
+            if show_back:
+                row = ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_BACK, icon_size=18, padding=0, on_click=show_list_view),
+                    ft.Icon(ft.Icons.SHIELD, color=ft.Colors.INDIGO_400),
+                    ft.Text("Edit Credentials", weight=ft.FontWeight.BOLD, expand=True),
+                    ft.IconButton(ft.Icons.CLOSE, icon_size=16, padding=0, on_click=lambda e: dismiss())
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            else:
+                row = ft.Row([
+                    ft.Icon(ft.Icons.SHIELD, color=ft.Colors.INDIGO_400),
+                    ft.Text("AutoFill Request", weight=ft.FontWeight.BOLD, expand=True),
+                    ft.IconButton(ft.Icons.CLOSE, icon_size=16, padding=0, on_click=lambda e: dismiss())
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            return ft.WindowDragArea(ft.Container(content=row, padding=ft.padding.only(left=15, right=15, top=15, bottom=5)))
+
+        app_bar = make_drag_bar(show_back=False)
 
         # Show loading indicator, then make window visible
         page.add(
             app_bar,
-            ft.Container(height=100),
-            ft.Row([ft.ProgressRing(width=20, height=20, stroke_width=2), ft.Text("Loading Vault...", color=ft.Colors.WHITE54)], alignment=ft.MainAxisAlignment.CENTER)
+            ft.Container(
+                content=ft.Column([
+                    ft.Container(height=100),
+                    ft.Row([ft.ProgressRing(width=20, height=20, stroke_width=2), ft.Text("Loading Vault...", color=ft.Colors.WHITE54)], alignment=ft.MainAxisAlignment.CENTER)
+                ]),
+                padding=ft.padding.only(left=15, right=15, bottom=15),
+                expand=True
+            )
         )
         import ctypes
         sw = ctypes.windll.user32.GetSystemMetrics(0)
         sh = ctypes.windll.user32.GetSystemMetrics(1)
-        page.window.left = (sw - 380) // 2
-        page.window.top = (sh - 480) // 2
+        MARGIN = 20
+        
+        if pos == "top_left":
+            page.window.left = MARGIN
+            page.window.top = MARGIN
+        elif pos == "bottom_right":
+            page.window.left = sw - 380 - MARGIN
+            page.window.top = sh - 480 - MARGIN
+        elif pos == "bottom_left":
+            page.window.left = MARGIN
+            page.window.top = sh - 480 - MARGIN
+        else: # top_right defaults
+            page.window.left = sw - 380 - MARGIN
+            page.window.top = MARGIN
+            
         page.window.visible = True
         page.window.opacity = 1
         page.update()
@@ -270,10 +306,16 @@ def main(page: ft.Page):
 
         list_view.controls = [
             app_bar,
-            ft.Text(f"Detected: {str(window_title)[:30]}...", size=12, color=ft.Colors.WHITE38),
-            tf_search,
-            ft.Divider(),
-            list_container
+            ft.Container(
+                content=ft.Column([
+                    ft.Text(f"Detected: {str(window_title)[:30]}...", size=12, color=ft.Colors.WHITE38),
+                    tf_search,
+                    ft.Divider(),
+                    list_container
+                ], expand=True),
+                padding=ft.padding.only(left=15, right=15, bottom=15),
+                expand=True
+            )
         ]
 
         # --- Edit / Add View ---
@@ -392,19 +434,22 @@ def main(page: ft.Page):
         )
 
         edit_view.controls = [
-            ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=show_list_view),
-                ft.Text("Edit Credentials", weight=ft.FontWeight.BOLD, expand=True)
-            ], alignment=ft.MainAxisAlignment.START),
-            ft.Divider(),
-            tf_edit_dom,
-            tf_edit_user,
-            tf_edit_pass,
-            lbl_ml_suggestion,
-            ml_buttons_row,
-            ft.Container(height=10),
-            ft.ElevatedButton("Save & AutoFill", on_click=lambda e: on_save_edit(e, auto_fill=True), width=350, bgcolor=ft.Colors.INDIGO_700),
-            ft.TextButton("Save only", on_click=lambda e: on_save_edit(e, auto_fill=False), width=350)
+            make_drag_bar(show_back=True),
+            ft.Container(
+                content=ft.Column([
+                    ft.Divider(),
+                    tf_edit_dom,
+                    tf_edit_user,
+                    tf_edit_pass,
+                    lbl_ml_suggestion,
+                    ml_buttons_row,
+                    ft.Container(height=10),
+                    ft.ElevatedButton("Save & AutoFill", on_click=lambda e: on_save_edit(e, auto_fill=True), width=350, bgcolor=ft.Colors.INDIGO_700),
+                    ft.TextButton("Save only", on_click=lambda e: on_save_edit(e, auto_fill=False), width=350)
+                ], expand=True),
+                padding=ft.padding.only(left=15, right=15, bottom=15),
+                expand=True
+            )
         ]
 
         page.controls.clear()

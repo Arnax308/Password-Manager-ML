@@ -132,6 +132,17 @@ def main(page: ft.Page):
     btn_record_hotkey = ft.ElevatedButton("Record Keystroke", on_click=start_recording_hotkey)
     switch_theme = ft.Switch(label="Dark Mode", value=True)
     
+    dd_settings_position = ft.Dropdown(
+        label="Popup Position",
+        width=300,
+        options=[
+            ft.dropdown.Option("top_right", "Top Right"),
+            ft.dropdown.Option("top_left", "Top Left"),
+            ft.dropdown.Option("bottom_right", "Bottom Right"),
+            ft.dropdown.Option("bottom_left", "Bottom Left"),
+        ]
+    )
+
     def load_settings():
         resp = client.get("/api/settings")
         if resp.status_code == 200:
@@ -139,6 +150,7 @@ def main(page: ft.Page):
             tf_settings_name.value = data.get("user_name", "")
             tf_settings_words.value = ", ".join(data.get("custom_words", []))
             tf_settings_hotkey.value = data.get("hotkey", "ctrl+shift+l")
+            dd_settings_position.value = data.get("popup_position", "top_right")
             page.update()
             
     def save_settings(e):
@@ -146,7 +158,8 @@ def main(page: ft.Page):
         resp = client.post("/api/settings", json={
             "user_name": tf_settings_name.value, 
             "custom_words": words,
-            "hotkey": tf_settings_hotkey.value
+            "hotkey": tf_settings_hotkey.value,
+            "popup_position": dd_settings_position.value or "top_right"
         })
         if resp.status_code == 200:
             desktop_agent.start_listener(tf_settings_hotkey.value)
@@ -285,6 +298,7 @@ def main(page: ft.Page):
             ft.Text("Appearance & Integration", size=18, weight=ft.FontWeight.W_500),
             switch_theme,
             ft.Row([tf_settings_hotkey, btn_record_hotkey], alignment=ft.MainAxisAlignment.START),
+            dd_settings_position,
             ft.Container(height=10),
             ft.Text("Machine Learning Profiling", size=18, weight=ft.FontWeight.W_500),
             ft.Text("Provide context so the ML engine can penalize passwords built with your personal info.", color=ft.Colors.WHITE70),

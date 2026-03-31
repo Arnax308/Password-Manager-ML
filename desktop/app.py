@@ -59,6 +59,7 @@ class SettingsUpdateRequest(BaseModel):
     user_name: str
     custom_words: List[str]
     hotkey: str
+    popup_position: str = "top_right"
 
 class ImportExportRequest(BaseModel):
     master_password: str
@@ -447,7 +448,8 @@ def get_settings():
     words_str = database.get_config('custom_words')
     words = json.loads(words_str) if words_str else []
     hotkey = database.get_config('hotkey') or "ctrl+shift+l"
-    return {"user_name": name, "custom_words": words, "hotkey": hotkey}
+    popup_position = database.get_config('popup_position') or "top_right"
+    return {"user_name": name, "custom_words": words, "hotkey": hotkey, "popup_position": popup_position}
 
 @app.post("/api/settings")
 def update_settings(req: SettingsUpdateRequest):
@@ -455,6 +457,7 @@ def update_settings(req: SettingsUpdateRequest):
     database.save_config('user_name', req.user_name.strip())
     database.save_config('custom_words', json.dumps(req.custom_words))
     database.save_config('hotkey', req.hotkey.strip())
+    database.save_config('popup_position', req.popup_position.strip())
     return {"message": "Settings updated"}
 
 if __name__ == "__main__":
