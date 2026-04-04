@@ -553,8 +553,7 @@ def main(page: ft.Page):
     )
 
     # --- UI Components: Vault Tab ---
-    vault_grid = ft.Row(
-        wrap=True,
+    vault_grid = ft.ResponsiveRow(
         spacing=15,
         run_spacing=15,
         alignment=ft.MainAxisAlignment.START,
@@ -800,31 +799,33 @@ def main(page: ft.Page):
                         ft.Row([btn_edit, btn_copy, btn_delete], spacing=0)
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
 
-                card = ft.Card(
-                    elevation=4,
-                    width=350,
-                    content=ft.Container(
-                        padding=15,
-                        border=ft.border.all(2, border_col) if has_decay else None,
-                        border_radius=8,
-                        content=ft.Column([
-                            ft.Container(
-                                content=ft.Row([
-                                    ft.Container(
-                                        content=ft.Icon(ft.Icons.WEB, size=24, color=ft.Colors.WHITE),
-                                        bgcolor=icon_color, padding=8, border_radius=8
-                                    ),
-                                    ft.Text(dom, weight=ft.FontWeight.BOLD, size=18, expand=True)
-                                ]),
-                                on_click=lambda e, dom=dom, pw_list=pw_list, pw_counts=pw_counts, now=now: open_domain_popup(dom, pw_list, pw_counts, now)
-                            ),
-                            ft.Divider(height=10),
-                            ft.Column(account_rows),
-                            ft.Row([notes_indicator], alignment=ft.MainAxisAlignment.END)
-                        ])
+                card_container = ft.Container(
+                    col={"sm": 12, "md": 6, "lg": 4, "xl": 3},
+                    content=ft.Card(
+                        elevation=4,
+                        content=ft.Container(
+                            padding=15,
+                            border=ft.border.all(2, border_col) if has_decay else None,
+                            border_radius=8,
+                            content=ft.Column([
+                                ft.Container(
+                                    content=ft.Row([
+                                        ft.Container(
+                                            content=ft.Icon(ft.Icons.WEB, size=24, color=ft.Colors.WHITE),
+                                            bgcolor=icon_color, padding=8, border_radius=8
+                                        ),
+                                        ft.Text(dom, weight=ft.FontWeight.BOLD, size=18, expand=True)
+                                    ]),
+                                    on_click=lambda e, dom=dom, pw_list=pw_list, pw_counts=pw_counts, now=now: open_domain_popup(dom, pw_list, pw_counts, now)
+                                ),
+                                ft.Divider(height=10),
+                                ft.Column(account_rows),
+                                ft.Row([notes_indicator], alignment=ft.MainAxisAlignment.END)
+                            ])
+                        )
                     )
                 )
-                vault_grid.controls.append(card)
+                vault_grid.controls.append(card_container)
                 
             lbl_health.value = f"Vault Health: {good} Secure, {decayed} Expiring"
             lbl_health.color = ft.Colors.RED if decayed > 0 else ft.Colors.GREEN

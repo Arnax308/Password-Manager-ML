@@ -67,6 +67,11 @@ def init_db():
         )
     ''')
     
+    try:
+        cursor.execute('UPDATE passwords SET note_id = NULL WHERE note_id IS NOT NULL AND note_id NOT IN (SELECT id FROM notes)')
+    except sqlite3.OperationalError:
+        pass
+        
     conn.commit()
     conn.close()
 
