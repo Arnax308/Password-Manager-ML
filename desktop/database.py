@@ -192,6 +192,7 @@ def update_note(n_id: int, title: str, enc_content: str, tags: str, nonce: str, 
 def delete_note(n_id: int):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    cursor.execute('UPDATE passwords SET note_id = NULL WHERE note_id = ?', (n_id,))
     cursor.execute('DELETE FROM notes WHERE id = ?', (n_id,))
     conn.commit()
     conn.close()

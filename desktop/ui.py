@@ -556,7 +556,7 @@ def main(page: ft.Page):
     vault_grid = ft.GridView(
         expand=True,
         max_extent=400,
-        child_aspect_ratio=1.5,
+        child_aspect_ratio=1.0,
         spacing=15,
         run_spacing=15,
     )
