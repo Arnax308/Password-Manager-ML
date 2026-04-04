@@ -359,7 +359,7 @@ def main(page: ft.Page):
 
     # --- UI Components: Audit Dashboard Tab ---
     # --- UI Components: Secure Notes Tab ---
-    notes_grid = ft.GridView(expand=True, max_extent=400, child_aspect_ratio=1.5, spacing=15, run_spacing=15)
+    notes_grid = ft.ResponsiveRow(spacing=15, run_spacing=15, alignment=ft.MainAxisAlignment.START)
     
     tf_notes_search = ft.TextField(
         label="Search Notes (by Title or Tag)...",
@@ -477,7 +477,7 @@ def main(page: ft.Page):
                 tags_row = ft.Row([ft.Container(content=ft.Text(t, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.INDIGO_700, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)) for t in n.get('tags', [])], wrap=True)
                 
                 is_hidden = n.get('is_hidden', True)
-                display_content = ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54, expand=True) if is_hidden else ft.Text(n['content'], size=14, color=ft.Colors.WHITE, expand=True, max_lines=4, overflow=ft.TextOverflow.ELLIPSIS)
+                display_content = ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54) if is_hidden else ft.Text(n['content'], size=14, color=ft.Colors.WHITE)
                 
                 def make_toggle_view(txt_control, orig_content):
                     def _toggle(e):
@@ -494,23 +494,26 @@ def main(page: ft.Page):
                     
                 btn_view = ft.IconButton(ft.Icons.VISIBILITY, tooltip="Toggle Content View", on_click=make_toggle_view(display_content, n['content']))
                 
-                card = ft.Card(
-                    elevation=3,
-                    content=ft.Container(
-                        padding=15,
-                        content=ft.Column([
-                            ft.Row([
-                                ft.Icon(ft.Icons.SUBJECT, color=ft.Colors.AMBER_400),
-                                ft.Text(n['title'], weight=ft.FontWeight.BOLD, size=18, expand=True)
-                            ]),
-                            tags_row,
-                            ft.Divider(),
-                            display_content,
-                            ft.Row([btn_copy, btn_view, btn_edit, btn_del], alignment=ft.MainAxisAlignment.END)
-                        ], expand=True)
+                card_container = ft.Container(
+                    col={"sm": 12, "md": 6, "lg": 4, "xl": 3},
+                    content=ft.Card(
+                        elevation=3,
+                        content=ft.Container(
+                            padding=15,
+                            content=ft.Column([
+                                ft.Row([
+                                    ft.Icon(ft.Icons.SUBJECT, color=ft.Colors.AMBER_400),
+                                    ft.Text(n['title'], weight=ft.FontWeight.BOLD, size=18, expand=True)
+                                ]),
+                                tags_row,
+                                ft.Divider(),
+                                display_content,
+                                ft.Row([btn_copy, btn_view, btn_edit, btn_del], alignment=ft.MainAxisAlignment.END)
+                            ])
+                        )
                     )
                 )
-                notes_grid.controls.append(card)
+                notes_grid.controls.append(card_container)
         page.update()
 
     notes_view = ft.Container(
@@ -522,7 +525,7 @@ def main(page: ft.Page):
             ]),
             tf_notes_search,
             ft.Divider(),
-            notes_grid
+            ft.Column([notes_grid], scroll=ft.ScrollMode.AUTO, expand=True)
         ], expand=True),
         padding=30, expand=True
     )
