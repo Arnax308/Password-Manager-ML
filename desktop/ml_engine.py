@@ -82,7 +82,7 @@ class MLEngine:
                 chain[gram].append(next_char)
                 
         # Generate new password
-        target_len = random.randint(12, 18)
+        target_len = random.randint(14, 20)
         current = random.choice(starts) if starts else "Ab"
         res = current
         
@@ -93,10 +93,42 @@ class MLEngine:
             else:
                 # Add random valid char if chain breaks
                 res += secrets.choice("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%")
-                
-        # To ensure it doesn't exactly match an old one and meets complexity
+
+        # --- Chunk Jumbling ---
+        # Split into chunks of size 4 to 6
+        chunk_size = max(4, target_len // 3)
+        chunks = [res[i:i+chunk_size] for i in range(0, len(res), chunk_size)]
+        random.shuffle(chunks)
+        res = "".join(chunks)
+
+        # --- Leetspeak Substitution ---
+        leetspeak_map = {
+            'a': '4', 'A': '4',
+            'e': '3', 'E': '3',
+            'i': '1', 'I': '1',
+            'o': '0', 'O': '0',
+            's': '5', 'S': '5',
+            't': '7', 'T': '7',
+            'b': '8', 'B': '8',
+            'g': '9', 'G': '9'
+        }
+        
+        final_res = []
+        for char in res:
+            # 40% chance of replacing eligible characters
+            if char in leetspeak_map and random.random() < 0.4:
+                final_res.append(leetspeak_map[char])
+            else:
+                final_res.append(char)
+        res = "".join(final_res)
+
+        # To ensure it doesn't exactly match an old one
         if res in user_passwords:
             res += secrets.choice("!@#$%^&*0123456789")
+            
+        # Ensure at least one special character is present for baseline metric safety
+        if not any(not c.isalnum() for c in res):
+            res += secrets.choice("!@#$%^&*")
             
         return res
 
