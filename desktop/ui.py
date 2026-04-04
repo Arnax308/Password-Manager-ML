@@ -553,12 +553,11 @@ def main(page: ft.Page):
     )
 
     # --- UI Components: Vault Tab ---
-    vault_grid = ft.GridView(
-        expand=True,
-        max_extent=400,
-        child_aspect_ratio=1.0,
+    vault_grid = ft.Row(
+        wrap=True,
         spacing=15,
         run_spacing=15,
+        alignment=ft.MainAxisAlignment.START,
     )
     lbl_health = ft.Text("Vault Health: Calculating...", size=14, weight=ft.FontWeight.BOLD)
     
@@ -803,6 +802,7 @@ def main(page: ft.Page):
 
                 card = ft.Card(
                     elevation=4,
+                    width=350,
                     content=ft.Container(
                         padding=15,
                         border=ft.border.all(2, border_col) if has_decay else None,
@@ -819,10 +819,9 @@ def main(page: ft.Page):
                                 on_click=lambda e, dom=dom, pw_list=pw_list, pw_counts=pw_counts, now=now: open_domain_popup(dom, pw_list, pw_counts, now)
                             ),
                             ft.Divider(height=10),
-                            ft.Column(account_rows, scroll=ft.ScrollMode.AUTO, expand=True),
-                            ft.Container(expand=True),
+                            ft.Column(account_rows),
                             ft.Row([notes_indicator], alignment=ft.MainAxisAlignment.END)
-                        ], expand=True)
+                        ])
                     )
                 )
                 vault_grid.controls.append(card)
@@ -842,7 +841,7 @@ def main(page: ft.Page):
             ]),
             ft.Row([tf_search, lbl_health], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Divider(),
-            vault_grid
+            ft.Column([vault_grid], scroll=ft.ScrollMode.AUTO, expand=True)
         ], expand=True),
         padding=30, expand=True
     )
