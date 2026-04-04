@@ -288,8 +288,21 @@ def main(page: ft.Page):
         current_delete_id[0] = pw_id
         delete_confirm_dialog.open = True
         page.update()
+        
+    pending_note_pw_id = [None]
+    domain_dialog = ft.AlertDialog(
+        title=ft.Text(""),
+        content=ft.Container(width=500, height=400),
+        actions=[ft.TextButton("Close", on_click=lambda e: setattr(domain_dialog, 'open', False) or page.update())]
+    )
+    
+    history_dialog = ft.AlertDialog(
+        title=ft.Text("Password History"),
+        content=ft.Column(scroll=ft.ScrollMode.AUTO, height=300, width=400),
+        actions=[ft.TextButton("Close", on_click=lambda e: setattr(history_dialog, 'open', False) or page.update())]
+    )
 
-    page.overlay.extend([change_dialog, reset_dialog, edit_dialog, delete_confirm_dialog])
+    page.overlay.extend([change_dialog, reset_dialog, edit_dialog, delete_confirm_dialog, domain_dialog, history_dialog])
 
     # --- UI Components: Password Generator Tab ---
     gen_length = ft.Slider(min=8, max=64, value=16, label="{value} chars", divisions=56)
@@ -369,6 +382,21 @@ def main(page: ft.Page):
             resp = client.put(f"/api/notes/{current_note_id[0]}", json=data)
             
         if resp.status_code == 200:
+            if pending_note_pw_id[0]:
+                n_resp = client.get("/api/notes").json()
+                note = next((n for n in n_resp if n["title"] == tf_note_title.value), None)
+                if note:
+                    pw_resp = client.get("/api/passwords").json()
+                    pw = next((p for p in pw_resp if p["id"] == pending_note_pw_id[0]), None)
+                    if pw:
+                        client.put(f"/api/passwords/{pw['id']}", json={
+                            "domain": pw["domain"],
+                            "username": pw["username"],
+                            "password": pw["password"],
+                            "note_id": note["id"]
+                        })
+                pending_note_pw_id[0] = None
+        
             edit_note_dialog.open = False
             show_success("Note saved successfully!")
             refresh_notes(tf_notes_search.value)
@@ -569,6 +597,125 @@ def main(page: ft.Page):
                 )
             )
 
+        def toggle_edit(e, tf_un, tf_pw, btn_save):
+            tf_un.read_only = not tf_un.read_only
+            tf_pw.read_only = not tf_pw.read_only
+            btn_save.visible = not btn_save.visible
+            page.update()
+
+        def save_pw_inline(pw, new_un, new_pw):
+            resp = client.put(f"/api/passwords/{pw['id']}", json={
+                "domain": pw["domain"],
+                "username": new_un,
+                "password": new_pw,
+                "note_id": pw.get("note_id")
+            })
+            if resp.status_code == 200:
+                domain_dialog.open = False
+                show_success("Credentials inline saved!")
+                refresh_vault()
+            else:
+                show_error("Failed to save.")
+
+        def show_history(history_list):
+            history_dialog.content.controls.clear()
+            if not history_list:
+                history_dialog.content.controls.append(ft.Text("No history available."))
+            else:
+                history_list.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+                for h in history_list:
+                    import datetime
+                    try:
+                        dt = datetime.datetime.fromisoformat(h["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                    except:
+                        dt = h["timestamp"]
+                    history_dialog.content.controls.append(
+                        ft.Card(
+                            content=ft.Container(
+                                padding=10,
+                                content=ft.Column([
+                                    ft.Text(f"Date: {dt}", size=12, color=ft.Colors.WHITE54),
+                                    ft.Row([
+                                        ft.Text("Password:", size=14),
+                                        ft.TextField(value=h["password"], password=True, can_reveal_password=True, read_only=True, expand=True),
+                                        ft.IconButton(ft.Icons.COPY, on_click=lambda e, p=h["password"]: page.set_clipboard(p) or show_success("Copied history!"))
+                                    ])
+                                ])
+                            )
+                        )
+                    )
+            history_dialog.open = True
+            page.update()
+
+        def prepare_add_note_for_pw(pw):
+            domain_dialog.open = False
+            pending_note_pw_id[0] = pw['id']
+            show_edit_note(None)
+            tf_note_tags.value = f"#associated_password, #{pw['domain']}"
+            tf_note_title.value = f"Note for {pw['domain']} ({pw['username']})"
+            page.update()
+
+        def show_linked_note(n_id):
+            n_resp = client.get("/api/notes")
+            if n_resp.status_code == 200:
+                n_list = n_resp.json()
+                note = next((n for n in n_list if n["id"] == n_id), None)
+                if note:
+                    domain_dialog.open = False
+                    show_edit_note(note)
+
+        def build_account_tab(pw, pw_counts, now):
+            tf_un = ft.TextField(label="Username", value=pw['username'], read_only=True)
+            tf_pw = ft.TextField(label="Password", value=pw['password'], password=True, can_reveal_password=True, read_only=True)
+            
+            btn_save = ft.ElevatedButton("Save", visible=False)
+            btn_edit = ft.IconButton(ft.Icons.EDIT, tooltip="Edit mode", on_click=lambda e: toggle_edit(e, tf_un, tf_pw, btn_save))
+            btn_save.on_click = lambda e: save_pw_inline(pw, tf_un.value, tf_pw.value)
+            
+            btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy", on_click=lambda e: page.set_clipboard(tf_pw.value) or show_success("Copied"))
+            btn_delete = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, on_click=lambda e: (setattr(domain_dialog, 'open', False), prompt_delete(pw['id'])))
+            btn_history = ft.TextButton("Password History", icon=ft.Icons.HISTORY, on_click=lambda e: show_history(pw.get("history", [])))
+            
+            if pw.get('note_id'):
+                btn_note = ft.ElevatedButton("View Note", icon=ft.Icons.NOTE, on_click=lambda e: show_linked_note(pw['note_id']))
+            else:
+                btn_note = ft.ElevatedButton("Add Note", icon=ft.Icons.ADD, on_click=lambda e: prepare_add_note_for_pw(pw))
+                
+            import datetime
+            created_at = datetime.datetime.fromisoformat(pw['created_at'])
+            ttl_days = pw.get('ttl_days', 90)
+            age_days = (now - created_at).days
+            remaining_days = ttl_days - age_days
+            
+            issues = []
+            score = pw.get("strength_score", 1.0)
+            if score < 0.5:
+                issues.append(ft.Container(content=ft.Text("Weak", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_700, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+            if pw_counts.get(pw["password"], 0) > 1:
+                issues.append(ft.Container(content=ft.Text("Reused", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.ORANGE_800, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+            if remaining_days <= 0:
+                issues.append(ft.Container(content=ft.Text("Expired", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_900, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+                
+            tags_row = ft.Row(issues, wrap=True)
+            
+            return ft.Container(
+                padding=20,
+                content=ft.Column([
+                    tags_row,
+                    ft.Row([tf_un, tf_pw, btn_copy]),
+                    ft.Row([btn_edit, btn_save, btn_delete, btn_note, btn_history])
+                ], scroll=ft.ScrollMode.AUTO)
+            )
+
+        def open_domain_popup(dom, pw_list, pw_counts, now):
+            domain_dialog.title.value = f"Accounts for {dom}"
+            tabs = ft.Tabs(selected_index=0, expand=True)
+            for pw in pw_list:
+                tabs.tabs.append(ft.Tab(text=pw['username'], content=build_account_tab(pw, pw_counts, now)))
+            domain_dialog.content.content = tabs
+            domain_dialog.open = True
+            page.update()
+
         resp = client.get("/api/passwords")
         if resp.status_code == 200:
             passwords = resp.json()
@@ -601,47 +748,11 @@ def main(page: ft.Page):
                 border_col = ft.Colors.RED_500 if has_decay else ft.Colors.TRANSPARENT
                 icon_color = ft.Colors.RED_900 if has_decay else ft.Colors.INDIGO_600
                 
-                # Render account list for this domain
-                account_rows = []
+                has_notes = any(pw.get('note_id') is not None for pw in pw_list)
+                notes_indicator = ft.Icon(ft.Icons.NOTE, size=16, color=ft.Colors.AMBER_400) if has_notes else ft.Container()
+                
                 import datetime
                 now = datetime.datetime.now()
-                
-                for pw in pw_list:
-                    # Calculate live TTL
-                    created_at = datetime.datetime.fromisoformat(pw['created_at'])
-                    ttl_days = pw.get('ttl_days', 90)
-                    age_days = (now - created_at).days
-                    remaining_days = ttl_days - age_days
-                    
-                    if remaining_days > 0:
-                        ttl_text = ft.Text(f"TTL: {remaining_days} days left", size=10, color=ft.Colors.WHITE54)
-                    else:
-                        ttl_text = ft.Text(f"Expired {-remaining_days} days ago", size=10, color=ft.Colors.RED_300)
-                        
-                    # Calculate Audit Flags
-                    issues = []
-                    score = pw.get("strength_score", 1.0)
-                    if score < 0.5:
-                        issues.append(ft.Container(content=ft.Text("Weak", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_700, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
-                    if pw_counts.get(pw["password"], 0) > 1:
-                        issues.append(ft.Container(content=ft.Text("Reused", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.ORANGE_800, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
-                    if remaining_days <= 0:
-                        issues.append(ft.Container(content=ft.Text("Expired", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_900, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
-                        
-                    issues_row = ft.Row(issues, spacing=5, wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER) if issues else ft.Container()
-                        
-                    btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy", icon_size=16, on_click=lambda e, p=pw['password']: page.set_clipboard(p) or show_success("Copied to clipboard"))
-                    btn_edit = ft.IconButton(ft.Icons.EDIT, tooltip="Edit", icon_size=16, on_click=lambda e, p=pw: show_edit_dialog(p))
-                    btn_delete = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, icon_size=16, on_click=lambda e, pid=pw['id']: prompt_delete(pid))
-                    
-                    account_rows.append(ft.Row([
-                        ft.Column([
-                            ft.Text(pw['username'], size=12, weight=ft.FontWeight.W_500),
-                            ttl_text,
-                            issues_row
-                        ], expand=True, spacing=1),
-                        ft.Row([btn_edit, btn_copy, btn_delete], spacing=0)
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
                 
                 card = ft.Card(
                     elevation=4,
@@ -649,6 +760,7 @@ def main(page: ft.Page):
                         padding=15,
                         border=ft.border.all(2, border_col) if has_decay else None,
                         border_radius=8,
+                        on_click=lambda e, dom=dom, pw_list=pw_list, pw_counts=pw_counts, now=now: open_domain_popup(dom, pw_list, pw_counts, now),
                         content=ft.Column([
                             ft.Row([
                                 ft.Container(
@@ -657,8 +769,8 @@ def main(page: ft.Page):
                                 ),
                                 ft.Text(dom, weight=ft.FontWeight.BOLD, size=18, expand=True)
                             ]),
-                            ft.Divider(height=10),
-                            ft.Column(account_rows, scroll=ft.ScrollMode.AUTO, expand=True)
+                            ft.Container(expand=True),
+                            ft.Row([notes_indicator], alignment=ft.MainAxisAlignment.END)
                         ], expand=True)
                     )
                 )

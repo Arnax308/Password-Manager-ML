@@ -79,11 +79,13 @@ class PasswordSaveRequest(BaseModel):
     domain: str
     username: str
     password: str
+    note_id: Optional[int] = None
 
 class PasswordUpdateRequest(BaseModel):
     domain: str
     username: str
     password: str
+    note_id: Optional[int] = None
 
 class PasswordResponse(BaseModel):
     id: int
@@ -95,6 +97,8 @@ class PasswordResponse(BaseModel):
     ttl_days: int
     strength_score: float
     is_decayed: bool
+    note_id: Optional[int] = None
+    history: List[dict] = []
 
 class NoteSaveRequest(BaseModel):
     title: str
@@ -200,7 +204,22 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
         n = base64.b64decode(r["nonce"])
         try:
             pt = encryption.decrypt_data(c, n, key)
-            decrypted_items.append((r["id"], r["domain"], r["username"], pt, r["ttl_days"], r["strength_score"]))
+            import json
+            dec_hist = []
+            if r.get("history") and r["history"] != "[]":
+                try:
+                    hist_arr = json.loads(r["history"])
+                    for h in hist_arr:
+                        hc = base64.b64decode(h["encrypted_password"])
+                        hn = base64.b64decode(h["nonce"])
+                        try:
+                            hpt = encryption.decrypt_data(hc, hn, key)
+                            dec_hist.append({"pt": hpt, "timestamp": h["timestamp"]})
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            decrypted_items.append((r["id"], r["domain"], r["username"], pt, r["ttl_days"], r["strength_score"], r.get("note_id"), dec_hist))
         except Exception:
             pass # Skip corrupted
             
@@ -221,8 +240,18 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
     new_key = encryption.derive_key(req.new_password, new_salt)
     
     # 5. Re-encrypt and update DB
-    for pid, domain, username, pt, ttl, score in decrypted_items:
+    for pid, domain, username, pt, ttl, score, note_id, dec_hist in decrypted_items:
         new_c, new_n = encryption.encrypt_data(pt, new_key)
+        import json
+        new_hist = []
+        for h in dec_hist:
+            hc, hn = encryption.encrypt_data(h["pt"], new_key)
+            new_hist.append({
+                "encrypted_password": base64.b64encode(hc).decode('utf-8'),
+                "nonce": base64.b64encode(hn).decode('utf-8'),
+                "timestamp": h["timestamp"]
+            })
+            
         database.update_password(
             pid,
             domain,
@@ -230,7 +259,9 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
             base64.b64encode(new_c).decode('utf-8'),
             base64.b64encode(new_n).decode('utf-8'),
             ttl,
-            score
+            score,
+            note_id,
+            json.dumps(new_hist)
         )
         
     for nid, title, n_pt in decrypted_notes:
@@ -316,13 +347,44 @@ def save_password(req: PasswordSaveRequest, key: bytes = Depends(require_auth)):
         base64.b64encode(ciphertext).decode('utf-8'),
         base64.b64encode(nonce).decode('utf-8'),
         ttl_days=ttl_days,
-        strength_score=score
+        strength_score=score,
+        note_id=req.note_id
     )
     notify_update()
     return {"message": "Password saved successfully"}
 
 @app.put("/api/passwords/{item_id}")
 def update_password(item_id: int, req: PasswordUpdateRequest, key: bytes = Depends(require_auth)):
+    rows = database.get_passwords()
+    existing_item = next((r for r in rows if r["id"] == item_id), None)
+    if not existing_item:
+        raise HTTPException(status_code=404, detail="Password not found")
+        
+    old_c = base64.b64decode(existing_item["encrypted_password"])
+    old_n = base64.b64decode(existing_item["nonce"])
+    
+    try:
+        old_pt = encryption.decrypt_data(old_c, old_n, key)
+    except Exception:
+        old_pt = ""
+        
+    import json
+    history_arr = []
+    if existing_item.get("history") and existing_item["history"] != "[]":
+        try:
+            history_arr = json.loads(existing_item["history"])
+        except ValueError:
+            pass
+
+    if old_pt and old_pt != req.password:
+        import datetime
+        now_str = datetime.datetime.now().isoformat()
+        history_arr.append({
+            "encrypted_password": existing_item["encrypted_password"],
+            "nonce": existing_item["nonce"],
+            "timestamp": now_str
+        })
+        
     score, ttl_days = ml_engine.score_password(req.password, get_user_info())
     ciphertext, nonce = encryption.encrypt_data(req.password, key)
     
@@ -333,7 +395,9 @@ def update_password(item_id: int, req: PasswordUpdateRequest, key: bytes = Depen
         enc_pass=base64.b64encode(ciphertext).decode('utf-8'),
         nonce=base64.b64encode(nonce).decode('utf-8'),
         ttl_days=ttl_days,
-        strength_score=score
+        strength_score=score,
+        note_id=req.note_id,
+        history=json.dumps(history_arr)
     )
     notify_update()
     return {"message": "Password updated successfully"}
@@ -368,6 +432,25 @@ def get_all_passwords(key: bytes = Depends(require_auth)):
         age_days = (now - created_at).days
         is_decayed = age_days > ttl_days
             
+        import json
+        history_plain = []
+        if r.get("history") and r["history"] != "[]":
+            try:
+                hist_arr = json.loads(r["history"])
+                for h in hist_arr:
+                    hc = base64.b64decode(h["encrypted_password"])
+                    hn = base64.b64decode(h["nonce"])
+                    try:
+                        hpt = encryption.decrypt_data(hc, hn, key)
+                        history_plain.append({
+                            "password": hpt,
+                            "timestamp": h["timestamp"]
+                        })
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         results.append(PasswordResponse(
             id=r["id"],
             domain=r["domain"],
@@ -377,7 +460,9 @@ def get_all_passwords(key: bytes = Depends(require_auth)):
             updated_at=r["updated_at"],
             ttl_days=ttl_days,
             strength_score=r["strength_score"] or 0.5,
-            is_decayed=is_decayed
+            is_decayed=is_decayed,
+            note_id=r.get("note_id"),
+            history=history_plain
         ))
     return results
 

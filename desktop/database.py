@@ -41,6 +41,16 @@ def init_db():
         cursor.execute("ALTER TABLE notes ADD COLUMN is_hidden INTEGER DEFAULT 1")
     except sqlite3.OperationalError:
         pass
+        
+    try:
+        cursor.execute("ALTER TABLE passwords ADD COLUMN note_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        cursor.execute("ALTER TABLE passwords ADD COLUMN history TEXT DEFAULT '[]'")
+    except sqlite3.OperationalError:
+        pass
     
     # Table to store encrypted passwords
     cursor.execute('''
@@ -78,26 +88,26 @@ def get_config(key: str):
 def is_vault_setup() -> bool:
     return get_config('salt') is not None
 
-def add_password(domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float):
+def add_password(domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float, note_id: int = None, history: str = '[]'):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
-        INSERT INTO passwords (domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (domain, username, enc_pass, nonce, now, now, ttl_days, strength_score))
+        INSERT INTO passwords (domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (domain, username, enc_pass, nonce, now, now, ttl_days, strength_score, note_id, history))
     conn.commit()
     conn.close()
 
-def update_password(p_id: int, domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float):
+def update_password(p_id: int, domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float, note_id: int = None, history: str = '[]'):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
         UPDATE passwords 
-        SET domain = ?, username = ?, encrypted_password = ?, nonce = ?, updated_at = ?, ttl_days = ?, strength_score = ?
+        SET domain = ?, username = ?, encrypted_password = ?, nonce = ?, updated_at = ?, ttl_days = ?, strength_score = ?, note_id = ?, history = ?
         WHERE id = ?
-    ''', (domain, username, enc_pass, nonce, now, ttl_days, strength_score, p_id))
+    ''', (domain, username, enc_pass, nonce, now, ttl_days, strength_score, note_id, history, p_id))
     conn.commit()
     conn.close()
 
@@ -111,7 +121,7 @@ def delete_password(p_id: int):
 def get_passwords():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT id, domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score FROM passwords')
+    cursor.execute('SELECT id, domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history FROM passwords')
     rows = cursor.fetchall()
     conn.close()
     
@@ -126,7 +136,9 @@ def get_passwords():
             "created_at": r[5],
             "updated_at": r[6],
             "ttl_days": r[7],
-            "strength_score": r[8]
+            "strength_score": r[8],
+            "note_id": r[9] if len(r) > 9 else None,
+            "history": r[10] if len(r) > 10 and r[10] else '[]'
         })
     return results
 
@@ -134,7 +146,7 @@ def get_password_by_domain_user(domain: str, username: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score 
+        SELECT id, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history 
         FROM passwords 
         WHERE domain = ? AND username = ?
     ''', (domain, username))
@@ -148,7 +160,9 @@ def get_password_by_domain_user(domain: str, username: str):
             "created_at": row[3],
             "updated_at": row[4],
             "ttl_days": row[5],
-            "strength_score": row[6]
+            "strength_score": row[6],
+            "note_id": row[7] if len(row) > 7 else None,
+            "history": row[8] if len(row) > 8 and row[8] else '[]'
         }
     return None
 
