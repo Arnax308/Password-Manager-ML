@@ -479,6 +479,21 @@ def main(page: ft.Page):
                 is_hidden = n.get('is_hidden', True)
                 display_content = ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54, expand=True) if is_hidden else ft.Text(n['content'], size=14, color=ft.Colors.WHITE, expand=True, max_lines=4, overflow=ft.TextOverflow.ELLIPSIS)
                 
+                def make_toggle_view(txt_control, orig_content):
+                    def _toggle(e):
+                        if txt_control.value == "Protected Content (Hidden)":
+                            txt_control.value = orig_content
+                            txt_control.italic = False
+                            txt_control.color = ft.Colors.WHITE
+                        else:
+                            txt_control.value = "Protected Content (Hidden)"
+                            txt_control.italic = True
+                            txt_control.color = ft.Colors.WHITE54
+                        page.update()
+                    return _toggle
+                    
+                btn_view = ft.IconButton(ft.Icons.VISIBILITY, tooltip="Toggle Content View", on_click=make_toggle_view(display_content, n['content']))
+                
                 card = ft.Card(
                     elevation=3,
                     content=ft.Container(
@@ -491,7 +506,7 @@ def main(page: ft.Page):
                             tags_row,
                             ft.Divider(),
                             display_content,
-                            ft.Row([btn_copy, btn_edit, btn_del], alignment=ft.MainAxisAlignment.END)
+                            ft.Row([btn_copy, btn_view, btn_edit, btn_del], alignment=ft.MainAxisAlignment.END)
                         ], expand=True)
                     )
                 )
@@ -754,21 +769,57 @@ def main(page: ft.Page):
                 import datetime
                 now = datetime.datetime.now()
                 
+                account_rows = []
+                for pw in pw_list:
+                    created_at = datetime.datetime.fromisoformat(pw['created_at'])
+                    ttl_days = pw.get('ttl_days', 90)
+                    age_days = (now - created_at).days
+                    remaining_days = ttl_days - age_days
+                    
+                    ttl_text = ft.Text(f"TTL: {remaining_days} days left", size=10, color=ft.Colors.WHITE54) if remaining_days > 0 else ft.Text(f"Expired {-remaining_days} days ago", size=10, color=ft.Colors.RED_300)
+                        
+                    issues = []
+                    if pw.get("strength_score", 1.0) < 0.5:
+                        issues.append(ft.Container(content=ft.Text("Weak", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_700, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+                    if pw_counts.get(pw["password"], 0) > 1:
+                        issues.append(ft.Container(content=ft.Text("Reused", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.ORANGE_800, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+                    if remaining_days <= 0:
+                        issues.append(ft.Container(content=ft.Text("Expired", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.RED_900, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)))
+                        
+                    issues_row = ft.Row(issues, spacing=5, wrap=True, vertical_alignment=ft.CrossAxisAlignment.CENTER) if issues else ft.Container()
+                        
+                    btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy", icon_size=16, on_click=lambda e, p=pw['password']: page.set_clipboard(p) or show_success("Copied to clipboard"))
+                    btn_edit = ft.IconButton(ft.Icons.EDIT, tooltip="Edit", icon_size=16, on_click=lambda e, p=pw: show_edit_dialog(p))
+                    btn_delete = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, icon_size=16, on_click=lambda e, pid=pw['id']: prompt_delete(pid))
+                    
+                    account_rows.append(ft.Row([
+                        ft.Column([
+                            ft.Text(pw['username'], size=12, weight=ft.FontWeight.W_500),
+                            ttl_text,
+                            issues_row
+                        ], expand=True, spacing=1),
+                        ft.Row([btn_edit, btn_copy, btn_delete], spacing=0)
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
+
                 card = ft.Card(
                     elevation=4,
                     content=ft.Container(
                         padding=15,
                         border=ft.border.all(2, border_col) if has_decay else None,
                         border_radius=8,
-                        on_click=lambda e, dom=dom, pw_list=pw_list, pw_counts=pw_counts, now=now: open_domain_popup(dom, pw_list, pw_counts, now),
                         content=ft.Column([
-                            ft.Row([
-                                ft.Container(
-                                    content=ft.Icon(ft.Icons.WEB, size=24, color=ft.Colors.WHITE),
-                                    bgcolor=icon_color, padding=8, border_radius=8
-                                ),
-                                ft.Text(dom, weight=ft.FontWeight.BOLD, size=18, expand=True)
-                            ]),
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Container(
+                                        content=ft.Icon(ft.Icons.WEB, size=24, color=ft.Colors.WHITE),
+                                        bgcolor=icon_color, padding=8, border_radius=8
+                                    ),
+                                    ft.Text(dom, weight=ft.FontWeight.BOLD, size=18, expand=True)
+                                ]),
+                                on_click=lambda e, dom=dom, pw_list=pw_list, pw_counts=pw_counts, now=now: open_domain_popup(dom, pw_list, pw_counts, now)
+                            ),
+                            ft.Divider(height=10),
+                            ft.Column(account_rows, scroll=ft.ScrollMode.AUTO, expand=True),
                             ft.Container(expand=True),
                             ft.Row([notes_indicator], alignment=ft.MainAxisAlignment.END)
                         ], expand=True)
