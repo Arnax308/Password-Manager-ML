@@ -48,7 +48,7 @@ def main(page: ft.Page):
         page.snack_bar.open = True; page.update()
 
     def pill(text, color):
-        return ft.Container(content=ft.Text(text, size=11, weight=ft.FontWeight.W_700, color="#fff"),
+        return ft.Container(content=ft.Text(text, size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
             bgcolor=color, border_radius=6, padding=ft.padding.symmetric(horizontal=8, vertical=3))
 
     def strength_dots(score):
@@ -110,11 +110,13 @@ def main(page: ft.Page):
     tf_master_password.on_submit = on_master_password_submit
     tf_setup_name.on_submit = on_setup
 
-    btn_login = ft.ElevatedButton("Unlock Vault", on_click=on_login,
-        width=360, height=46, color="#fff", bgcolor=ACCENT,
+    btn_login = ft.ElevatedButton(
+        content=ft.Text("Unlock Vault", size=14, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+        on_click=on_login, width=360, height=46, bgcolor=ACCENT,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)))
-    btn_setup = ft.ElevatedButton("Complete Setup", on_click=on_setup,
-        width=360, height=46, color="#fff", bgcolor=ACCENT,
+    btn_setup = ft.ElevatedButton(
+        content=ft.Text("Complete Setup", size=14, weight=ft.FontWeight.W_600, color=ft.Colors.WHITE),
+        on_click=on_setup, width=360, height=46, bgcolor=ACCENT,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)))
 
     auth_container = ft.Column(
@@ -270,10 +272,12 @@ def main(page: ft.Page):
     tf_edit_domain = ft.TextField(label="Domain / Website")
     tf_edit_username = ft.TextField(label="Username / Email")
     tf_edit_password = ft.TextField(label="Password", password=True, can_reveal_password=True)
+    dd_edit_note = ft.Dropdown(label="Link a Secure Note (Optional)")
     current_edit_id = [None]
 
     def on_edit_save(e):
-        data = {"domain": tf_edit_domain.value, "username": tf_edit_username.value, "password": tf_edit_password.value}
+        note_val = int(dd_edit_note.value) if dd_edit_note.value and dd_edit_note.value != "None" else None
+        data = {"domain": tf_edit_domain.value, "username": tf_edit_username.value, "password": tf_edit_password.value, "note_id": note_val}
         if current_edit_id[0] is None:
             resp = client.post("/api/passwords", json=data)
         else:
@@ -288,7 +292,7 @@ def main(page: ft.Page):
 
     edit_dialog = ft.AlertDialog(
         title=ft.Text("Edit Credentials"),
-        content=ft.Column([tf_edit_domain, tf_edit_username, tf_edit_password], tight=True),
+        content=ft.Column([tf_edit_domain, tf_edit_username, tf_edit_password, dd_edit_note], tight=True),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(edit_dialog, 'open', False) or page.update()),
             ft.ElevatedButton("Save", on_click=on_edit_save)
@@ -296,17 +300,25 @@ def main(page: ft.Page):
     )
 
     def show_edit_dialog(pw=None):
+        resp = client.get("/api/notes")
+        notes = resp.json() if resp.status_code == 200 else []
+        dd_edit_note.options = [ft.dropdown.Option("None", "None (No linked note)")] + [
+            ft.dropdown.Option(str(n['id']), n['title']) for n in notes
+        ]
+        
         if pw:
             edit_dialog.title.value = "Edit Existing Password"
             tf_edit_domain.value = pw['domain']
             tf_edit_username.value = pw['username']
             tf_edit_password.value = pw['password']
+            dd_edit_note.value = str(pw['note_id']) if pw.get('note_id') else "None"
             current_edit_id[0] = pw['id']
         else:
             edit_dialog.title.value = "Add New Custom Password"
             tf_edit_domain.value = ""
             tf_edit_username.value = ""
             tf_edit_password.value = ""
+            dd_edit_note.value = "None"
             current_edit_id[0] = None
         edit_dialog.open = True
         page.update()
@@ -400,9 +412,11 @@ def main(page: ft.Page):
             ft.Row([tf_generated, btn_copy_gen]),
             ft.Container(height=8),
             ft.Row([
-                ft.ElevatedButton("Generate", icon=ft.Icons.REFRESH, on_click=on_generate_click, height=44,
+                ft.ElevatedButton(
+                    content=ft.Text("Generate", color=ft.Colors.WHITE), icon=ft.Icons.REFRESH, on_click=on_generate_click, height=44,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), side=ft.border.BorderSide(1, ACCENT))),
-                ft.ElevatedButton("Smart ML Generate", icon=ft.Icons.AUTO_AWESOME, on_click=on_smart_gen_click, height=44,
+                ft.ElevatedButton(
+                    content=ft.Text("Smart ML Generate", color=ft.Colors.WHITE), icon=ft.Icons.AUTO_AWESOME, on_click=on_smart_gen_click, height=44,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
             ], spacing=12)
         ], spacing=10))
@@ -550,7 +564,7 @@ def main(page: ft.Page):
 
     notes_view = ft.Container(padding=24, expand=True, content=ft.Column([
         ft.Row([ft.Text("Secure Notes", size=22, weight=ft.FontWeight.W_600, color=TXT), ft.Container(expand=True),
-                ft.ElevatedButton("Add Note", icon=ft.Icons.ADD, on_click=lambda e: show_edit_note(None),
+                ft.ElevatedButton(content=ft.Text("Add Note", color=ft.Colors.WHITE), icon=ft.Icons.ADD, on_click=lambda e: show_edit_note(None),
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT))]),
         ft.Container(height=4), tf_notes_search, ft.Container(height=8),
         ft.Column([notes_list_col], scroll=ft.ScrollMode.AUTO, expand=True)
@@ -571,7 +585,7 @@ def main(page: ft.Page):
             tf_settings_name, tf_settings_words,
         ], spacing=10)),
         ft.Container(height=10),
-        ft.ElevatedButton("Save Settings", on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
+        ft.ElevatedButton(content=ft.Text("Save Settings", color=ft.Colors.WHITE), on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
         ft.Container(height=20),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, f"{DANGER}30"), padding=20, content=ft.Column([
