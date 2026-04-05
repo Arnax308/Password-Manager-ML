@@ -24,7 +24,20 @@ def main(page: ft.Page):
     page.window.focus = False          # don't steal keyboard focus on show
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
-    page.theme = ft.Theme(color_scheme_seed=ft.Colors.INDIGO)
+    page.fonts = {"Inter": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Regular.woff2"}
+    page.theme = ft.Theme(
+        font_family="Inter",
+        color_scheme_seed=ft.Colors.TEAL_500,
+        color_scheme=ft.ColorScheme(
+            background="#0b1221", 
+            surface="#152036",
+            primary="#10b981",
+            secondary="#eab308",
+            outline="#10b981"
+        )
+    )
+    page.bgcolor = "#0b1221"
+
 
     def dismiss():
         page.window.visible = False
@@ -112,13 +125,13 @@ def main(page: ft.Page):
             if show_back:
                 row = ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK, icon_size=18, padding=0, on_click=show_list_view),
-                    ft.Icon(ft.Icons.SHIELD, color=ft.Colors.INDIGO_400),
+                    ft.Icon(ft.Icons.SHIELD, color="#10b981"),
                     ft.Text("Edit Credentials", weight=ft.FontWeight.BOLD, expand=True),
                     ft.IconButton(ft.Icons.CLOSE, icon_size=16, padding=0, on_click=lambda e: dismiss())
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             else:
                 row = ft.Row([
-                    ft.Icon(ft.Icons.SHIELD, color=ft.Colors.INDIGO_400),
+                    ft.Icon(ft.Icons.SHIELD, color="#10b981"),
                     ft.Text("AutoFill Request", weight=ft.FontWeight.BOLD, expand=True),
                     ft.IconButton(ft.Icons.CLOSE, icon_size=16, padding=0, on_click=lambda e: dismiss())
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -227,7 +240,7 @@ def main(page: ft.Page):
         list_container = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True)
 
         tf_search = ft.TextField(
-            label="Search Vault manually...", prefix_icon=ft.Icons.SEARCH,
+            label="Search Vault manually...", prefix_icon=ft.Icons.SEARCH, border_color="#eab308",
             height=40, text_size=12, on_change=lambda e: render_list(e.control.value)
         )
 
@@ -272,19 +285,20 @@ def main(page: ft.Page):
             if smart_alert:
                 col_content.append(smart_alert)
             col_content.append(ft.Row([
-                ft.Icon(ft.Icons.PERSON, size=20, color=ft.Colors.INDIGO_300),
+                ft.Icon(ft.Icons.PERSON, size=20, color="#eab308"),
                 ft.Column([user_display, ft.Text(pw['domain'], size=10, color=ft.Colors.WHITE54)], expand=True, spacing=1),
                 ft.IconButton(ft.Icons.EDIT, icon_size=16, tooltip="Edit", on_click=lambda e: show_edit_form(pw)),
             ]))
             col_content.append(ft.Row([
                 ft.ElevatedButton("\U0001f464 User", tooltip="Fill Username Only", on_click=lambda e: handle_fill("user"), style=ft.ButtonStyle(padding=5)),
                 ft.ElevatedButton("\U0001f511 Pass", tooltip="Fill Password Only", on_click=lambda e: handle_fill("pass"), style=ft.ButtonStyle(padding=5)),
-                ft.ElevatedButton("Both", tooltip="Fill Both", on_click=lambda e: handle_fill("both"), style=ft.ButtonStyle(padding=5), bgcolor=ft.Colors.INDIGO_700),
+                ft.ElevatedButton("Both", tooltip="Fill Both", on_click=lambda e: handle_fill("both"), style=ft.ButtonStyle(padding=5), bgcolor="#10b981"),
             ], alignment=ft.MainAxisAlignment.END, spacing=5))
 
             return ft.Card(
-                color=ft.Colors.BLUE_GREY_900,
-                content=ft.Container(padding=10, content=ft.Column(col_content, spacing=10))
+                color="#152036",
+                elevation=10, shadow_color="#000000",
+                content=ft.Container(padding=15, border_radius=8, content=ft.Column(col_content, spacing=10))
             )
 
         def render_list(query=""):
@@ -444,7 +458,7 @@ def main(page: ft.Page):
                     lbl_ml_suggestion,
                     ml_buttons_row,
                     ft.Container(height=10),
-                    ft.ElevatedButton("Save & AutoFill", on_click=lambda e: on_save_edit(e, auto_fill=True), width=350, bgcolor=ft.Colors.INDIGO_700),
+                    ft.ElevatedButton("Save & AutoFill", on_click=lambda e: on_save_edit(e, auto_fill=True), width=350, bgcolor="#10b981"),
                     ft.TextButton("Save only", on_click=lambda e: on_save_edit(e, auto_fill=False), width=350)
                 ], expand=True),
                 padding=ft.padding.only(left=15, right=15, bottom=15),

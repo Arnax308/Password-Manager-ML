@@ -18,7 +18,20 @@ def main(page: ft.Page):
     page.window.width = 1100
     page.window.height = 800
     page.window.resizable = True
-    page.theme = ft.Theme(color_scheme_seed=ft.Colors.INDIGO)
+    page.fonts = {"Inter": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Regular.woff2"}
+    page.theme = ft.Theme(
+        font_family="Inter",
+        color_scheme_seed=ft.Colors.TEAL_500,
+        color_scheme=ft.ColorScheme(
+            background="#0b1221", 
+            surface="#152036",
+            primary="#10b981",
+            secondary="#eab308",
+            outline="#10b981"
+        )
+    )
+    page.bgcolor = "#0b1221"
+
     
     client = TestClient(backend.app)
 
@@ -37,8 +50,8 @@ def main(page: ft.Page):
         page.update()
 
     # --- UI Components: Auth Screen ---
-    tf_master_password = ft.TextField(label="Master Password", password=True, can_reveal_password=True, width=350, border_color=ft.Colors.INDIGO_400)
-    tf_setup_name = ft.TextField(label="Your Name (For ML Profiling)", width=350, border_color=ft.Colors.INDIGO_400)
+    tf_master_password = ft.TextField(label="Master Password", password=True, can_reveal_password=True, width=350, border_color="#10b981")
+    tf_setup_name = ft.TextField(label="Your Name (For ML Profiling)", width=350, border_color="#10b981")
     lbl_auth_error = ft.Text(color=ft.Colors.RED, size=14)
     
     def on_login(e):
@@ -73,13 +86,13 @@ def main(page: ft.Page):
     tf_master_password.on_submit = on_master_password_submit
     tf_setup_name.on_submit = on_setup
 
-    btn_login = ft.ElevatedButton("Unlock Vault", on_click=on_login, width=350, height=45, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)))
-    btn_setup = ft.ElevatedButton("Complete Setup", on_click=on_setup, width=350, height=45, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)))
+    btn_login = ft.ElevatedButton("Unlock Vault", on_click=on_login, width=350, height=45, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), side=ft.border.BorderSide(1, "#eab308")))
+    btn_setup = ft.ElevatedButton("Complete Setup", on_click=on_setup, width=350, height=45, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), side=ft.border.BorderSide(1, "#eab308")))
     
     auth_container = ft.Container(
         content=ft.Column(
             [
-                ft.Icon(ft.Icons.SHIELD_ROUNDED, size=80, color=ft.Colors.INDIGO_300),
+                ft.Icon(ft.Icons.SHIELD_ROUNDED, size=80, color="#eab308"),
                 ft.Text("LocalPass Secure Vault", size=32, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                 ft.Container(height=20),
                 tf_setup_name,
@@ -97,7 +110,8 @@ def main(page: ft.Page):
         gradient=ft.LinearGradient(
             begin=ft.alignment.top_left,
             end=ft.alignment.bottom_right,
-            colors=[ft.Colors.BLACK, ft.Colors.INDIGO_900]
+            colors=["#0B1221", "#064e3b", "#040812"],
+            stops=[0.0, 0.5, 1.0]
         )
     )
 
@@ -363,7 +377,7 @@ def main(page: ft.Page):
     
     tf_notes_search = ft.TextField(
         label="Search Notes (by Title or Tag)...",
-        prefix_icon=ft.Icons.SEARCH,
+        prefix_icon=ft.Icons.SEARCH, border_color="#eab308",
         on_change=lambda e: refresh_notes(e.control.value),
     )
     
@@ -474,7 +488,7 @@ def main(page: ft.Page):
                 btn_del = ft.IconButton(ft.Icons.DELETE, tooltip="Delete", icon_color=ft.Colors.RED_400, on_click=lambda e, nid=n['id']: prompt_del_note(nid))
                 btn_copy = ft.IconButton(ft.Icons.COPY, tooltip="Copy Context", on_click=lambda e, c=n['content']: page.set_clipboard(c) or show_success("Note copied!"))
                 
-                tags_row = ft.Row([ft.Container(content=ft.Text(t, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor=ft.Colors.INDIGO_700, border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)) for t in n.get('tags', [])], wrap=True)
+                tags_row = ft.Row([ft.Container(content=ft.Text(t, size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE), bgcolor="#10b981", border_radius=12, padding=ft.padding.symmetric(horizontal=8, vertical=3)) for t in n.get('tags', [])], wrap=True)
                 
                 is_hidden = n.get('is_hidden', True)
                 display_content = ft.Text("Protected Content (Hidden)", italic=True, color=ft.Colors.WHITE54) if is_hidden else ft.Text(n['content'], size=14, color=ft.Colors.WHITE)
@@ -497,7 +511,7 @@ def main(page: ft.Page):
                 card_container = ft.Container(
                     col={"sm": 12, "md": 6, "lg": 4, "xl": 3},
                     content=ft.Card(
-                        elevation=3,
+                        elevation=10, shadow_color="#000000",
                         content=ft.Container(
                             padding=15,
                             content=ft.Column([
@@ -593,7 +607,7 @@ def main(page: ft.Page):
 
     tf_search = ft.TextField(
         label="Search Vault...",
-        prefix_icon=ft.Icons.SEARCH,
+        prefix_icon=ft.Icons.SEARCH, border_color="#eab308",
         on_change=lambda e: refresh_vault(e.control.value),
         expand=True,
     )
@@ -762,7 +776,7 @@ def main(page: ft.Page):
             for dom, pw_list in grouped.items():
                 has_decay = any(pw.get('is_decayed', False) for pw in pw_list)
                 border_col = ft.Colors.RED_500 if has_decay else ft.Colors.TRANSPARENT
-                icon_color = ft.Colors.RED_900 if has_decay else ft.Colors.INDIGO_600
+                icon_color = ft.Colors.RED_900 if has_decay else "#10b981"
                 
                 has_notes = any(pw.get('note_id') is not None for pw in pw_list)
                 notes_indicator = ft.Icon(ft.Icons.NOTE, size=16, color=ft.Colors.AMBER_400) if has_notes else ft.Container()
@@ -805,7 +819,7 @@ def main(page: ft.Page):
                 card_container = ft.Container(
                     col={"sm": 12, "md": 6, "lg": 4, "xl": 3},
                     content=ft.Card(
-                        elevation=4,
+                        elevation=15, shadow_color="#000000",
                         content=ft.Container(
                             padding=15,
                             border=ft.border.all(2, border_col) if has_decay else None,
@@ -869,6 +883,7 @@ def main(page: ft.Page):
     nav_rail = ft.NavigationRail(
         selected_index=0, label_type=ft.NavigationRailLabelType.ALL,
         min_width=100, min_extended_width=400, group_alignment=-0.9,
+        bgcolor="#152036", indicator_color="#064e3b", indicator_shape=ft.RoundedRectangleBorder(radius=12),
         destinations=[
             ft.NavigationRailDestination(icon=ft.Icons.SHIELD_OUTLINED, selected_icon=ft.Icons.SHIELD, label="Vault"),
             ft.NavigationRailDestination(icon=ft.Icons.SUBJECT_OUTLINED, selected_icon=ft.Icons.SUBJECT, label="Notes"),
@@ -888,7 +903,7 @@ def main(page: ft.Page):
     app_bar = ft.AppBar(
         leading=ft.Icon(ft.Icons.LOCK_PERSON), leading_width=40,
         title=ft.Text("LocalPass"), center_title=False,
-        bgcolor=ft.Colors.BLUE_GREY_900,
+        bgcolor="#152036",
         actions=[ft.IconButton(ft.Icons.LOCK_OUTLINE, tooltip="Lock Vault", on_click=on_lock), ft.Container(width=10)],
     )
 
