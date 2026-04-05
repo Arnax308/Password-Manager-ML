@@ -45,15 +45,15 @@ def main(page: ft.Page):
         page.snack_bar.open = True; page.update()
 
     def pill(text, color):
-        return ft.Container(content=ft.Text(text, size=9, weight=ft.FontWeight.W_700, color="#fff"),
-            bgcolor=color, border_radius=4, padding=ft.padding.symmetric(horizontal=6, vertical=2))
+        return ft.Container(content=ft.Text(text, size=11, weight=ft.FontWeight.W_700, color="#fff"),
+            bgcolor=color, border_radius=6, padding=ft.padding.symmetric(horizontal=8, vertical=3))
 
     def strength_dots(score):
         filled = int(score * 5)
         c = DANGER if score < 0.4 else (WARN if score < 0.7 else ACCENT)
         dots = []
         for i in range(5):
-            dots.append(ft.Container(width=8, height=8, border_radius=4,
+            dots.append(ft.Container(width=10, height=10, border_radius=5,
                 bgcolor=c if i < filled else "#1e293b"))
         return ft.Row(dots, spacing=3)
 
@@ -107,38 +107,41 @@ def main(page: ft.Page):
     tf_master_password.on_submit = on_master_password_submit
     tf_setup_name.on_submit = on_setup
 
-    btn_login = ft.Container(
-        content=ft.Text("Unlock Vault", size=14, weight=ft.FontWeight.W_600, color="#fff",
-            text_align=ft.TextAlign.CENTER),
-        width=360, height=46, border_radius=10, bgcolor=ACCENT,
-        alignment=ft.alignment.center, on_click=on_login, ink=True)
-    btn_setup = ft.Container(
-        content=ft.Text("Complete Setup", size=14, weight=ft.FontWeight.W_600, color="#fff",
-            text_align=ft.TextAlign.CENTER),
-        width=360, height=46, border_radius=10, bgcolor=ACCENT,
-        alignment=ft.alignment.center, on_click=on_setup, ink=True)
+    btn_login = ft.ElevatedButton("Unlock Vault", on_click=on_login,
+        width=360, height=46, color="#fff", bgcolor=ACCENT,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)))
+    btn_setup = ft.ElevatedButton("Complete Setup", on_click=on_setup,
+        width=360, height=46, color="#fff", bgcolor=ACCENT,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)))
 
-    auth_container = ft.Container(
-        content=ft.Container(
-            width=420, padding=36, border_radius=20, bgcolor=SURFACE,
-            border=ft.border.all(1, BORDER),
-            shadow=ft.BoxShadow(blur_radius=60, color="#00000060"),
-            content=ft.Column([
-                ft.Container(
-                    content=ft.Icon(ft.Icons.SHIELD_ROUNDED, size=40, color=ACCENT),
-                    width=72, height=72, border_radius=36,
-                    border=ft.border.all(2, GOLD), alignment=ft.alignment.center),
-                ft.Container(height=6),
-                ft.Text("LocalPass", size=28, weight=ft.FontWeight.BOLD, color=TXT),
-                ft.Text("Your offline password vault", size=13, color=TXT3),
-                ft.Container(height=16),
-                tf_setup_name,
-                tf_master_password,
-                ft.Container(height=8),
-                btn_login, btn_setup, lbl_auth_error,
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-        ),
-        alignment=ft.alignment.center, expand=True, bgcolor=BG,
+    auth_container = ft.Column(
+        [
+            ft.Container(expand=True),
+            ft.Row(
+                [ft.Container(
+                    width=420, padding=36, border_radius=20, bgcolor=SURFACE,
+                    border=ft.border.all(1, BORDER),
+                    shadow=ft.BoxShadow(blur_radius=60, color="#00000060"),
+                    content=ft.Column([
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.SHIELD_ROUNDED, size=40, color=ACCENT),
+                            width=72, height=72, border_radius=36,
+                            border=ft.border.all(2, GOLD), alignment=ft.alignment.center),
+                        ft.Container(height=6),
+                        ft.Text("LocalPass", size=28, weight=ft.FontWeight.BOLD, color=TXT),
+                        ft.Text("Your offline password vault", size=13, color=TXT3),
+                        ft.Container(height=16),
+                        tf_setup_name,
+                        tf_master_password,
+                        ft.Container(height=8),
+                        btn_login, btn_setup, lbl_auth_error,
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                )],
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            ft.Container(expand=True),
+        ],
+        expand=True,
     )
 
     # --- UI Components: Settings Tab ---
@@ -387,7 +390,7 @@ def main(page: ft.Page):
         ft.Text("Password Generator", size=22, weight=ft.FontWeight.W_600, color=TXT),
         ft.Container(height=8),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=24, content=ft.Column([
-            ft.Text("CHARACTER OPTIONS", size=11, weight=ft.FontWeight.W_700, color=TXT3, letter_spacing=1.5),
+            ft.Text("CHARACTER OPTIONS", size=11, weight=ft.FontWeight.W_700, color=TXT3),
             ft.Row([gen_upper, gen_lower, gen_numbers, gen_symbols], spacing=16),
             ft.Row([ft.Text("Length:", color=TXT2), gen_length], vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Container(height=8),
@@ -553,14 +556,14 @@ def main(page: ft.Page):
     settings_view = ft.Container(padding=24, expand=True, content=ft.Column([
         ft.Text("Settings", size=22, weight=ft.FontWeight.W_600, color=TXT), ft.Container(height=8),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
-            ft.Text("APPEARANCE", size=11, weight=ft.FontWeight.W_700, color=TXT3, letter_spacing=1.5),
+            ft.Text("APPEARANCE", size=11, weight=ft.FontWeight.W_700, color=TXT3),
             switch_theme,
             ft.Row([tf_settings_hotkey, btn_record_hotkey]),
             dd_settings_position,
         ], spacing=10)),
         ft.Container(height=10),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
-            ft.Text("ML PROFILING", size=11, weight=ft.FontWeight.W_700, color=TXT3, letter_spacing=1.5),
+            ft.Text("ML PROFILING", size=11, weight=ft.FontWeight.W_700, color=TXT3),
             ft.Text("Help the ML engine penalise passwords built with your personal info.", size=12, color=TXT3),
             tf_settings_name, tf_settings_words,
         ], spacing=10)),
@@ -569,7 +572,7 @@ def main(page: ft.Page):
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
         ft.Container(height=20),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, f"{DANGER}30"), padding=20, content=ft.Column([
-            ft.Text("DANGER ZONE", size=11, weight=ft.FontWeight.W_700, color=DANGER, letter_spacing=1.5),
+            ft.Text("DANGER ZONE", size=11, weight=ft.FontWeight.W_700, color=DANGER),
             ft.Row([
                 ft.ElevatedButton("Change Master Password", icon=ft.Icons.VPN_KEY, on_click=lambda e: setattr(change_dialog, 'open', True) or page.update(),
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))),
@@ -793,11 +796,9 @@ def main(page: ft.Page):
 
                 tile = ft.ExpansionTile(
                     title=ft.Row([
-                        ft.Container(
-                            content=ft.Text(letter, size=15, weight=ft.FontWeight.BOLD, color="#fff",
-                                text_align=ft.TextAlign.CENTER),
-                            width=36, height=36, border_radius=8, bgcolor=ACCENT2,
-                            alignment=ft.alignment.center),
+                        ft.CircleAvatar(
+                            content=ft.Text(letter, size=15, weight=ft.FontWeight.BOLD, color="#fff"),
+                            bgcolor=ACCENT2, radius=18),
                         ft.Column([
                             ft.Text(dom, size=14, weight=ft.FontWeight.W_600, color=TXT),
                             ft.Text(f"{len(pw_list)} account{'s' if len(pw_list)>1 else ''}",
@@ -830,9 +831,7 @@ def main(page: ft.Page):
                 on_click=lambda _: export_picker.save_file(allowed_extensions=["csv"], file_name="vault_export.csv")),
         ]),
         stats_row,
-        ft.Container(height=4),
         tf_search,
-        ft.Container(height=8),
         ft.Column([vault_list], scroll=ft.ScrollMode.AUTO, expand=True)
     ], expand=True))
 
