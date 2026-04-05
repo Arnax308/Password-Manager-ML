@@ -274,6 +274,21 @@ def main(page: ft.Page):
     tf_edit_password = ft.TextField(label="Password", password=True, can_reveal_password=True)
     dd_edit_note = ft.Dropdown(label="Link a Secure Note (Optional)")
     current_edit_id = [None]
+    creating_note_for_dropdown = [False]
+
+    def on_create_associated_note(e):
+        creating_note_for_dropdown[0] = True
+        edit_dialog.open = False
+        tf_note_title.value = f"Note for {tf_edit_domain.value or 'New Account'}"
+        tf_note_tags.value = f"{tf_edit_domain.value or 'account'}, associated"
+        tf_note_content.value = ""
+        cb_hide_content.value = True
+        current_note_id[0] = None
+        edit_note_dialog.title.value = "Create Associated Note"
+        edit_note_dialog.open = True
+        page.update()
+
+    btn_create_associated = ft.TextButton("Create Associated Note", on_click=on_create_associated_note, icon=ft.Icons.NOTE_ADD)
 
     def on_edit_save(e):
         note_val = int(dd_edit_note.value) if dd_edit_note.value and dd_edit_note.value != "None" else None
@@ -292,7 +307,7 @@ def main(page: ft.Page):
 
     edit_dialog = ft.AlertDialog(
         title=ft.Text("Edit Credentials"),
-        content=ft.Column([tf_edit_domain, tf_edit_username, tf_edit_password, dd_edit_note], tight=True),
+        content=ft.Column([tf_edit_domain, tf_edit_username, tf_edit_password, dd_edit_note, btn_create_associated], tight=True),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(edit_dialog, 'open', False) or page.update()),
             ft.ElevatedButton("Save", on_click=on_edit_save)
@@ -461,6 +476,20 @@ def main(page: ft.Page):
                             "note_id": note["id"]
                         })
                 pending_note_pw_id[0] = None
+            elif creating_note_for_dropdown[0]:
+                n_resp = client.get("/api/notes").json()
+                note = next((n for n in n_resp if n["title"] == tf_note_title.value), None)
+                if note:
+                    # Update dropdown options if needed and select it
+                    if str(note['id']) not in [opt.key for opt in dd_edit_note.options]:
+                        dd_edit_note.options.append(ft.dropdown.Option(str(note['id']), note['title']))
+                    dd_edit_note.value = str(note['id'])
+                creating_note_for_dropdown[0] = False
+                edit_note_dialog.open = False
+                edit_dialog.open = True
+                show_success("Note created and linked!")
+                page.update()
+                return
         
             edit_note_dialog.open = False
             show_success("Note saved successfully!")
