@@ -24,7 +24,10 @@ def main(page: ft.Page):
     page.fonts = {"Inter": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Regular.woff2"}
     page.theme = ft.Theme(
         font_family="Inter",
-        color_scheme=ft.ColorScheme(background=BG, surface=SURFACE, primary=ACCENT, secondary=GOLD, outline=ACCENT)
+        color_scheme=ft.ColorScheme(
+            background=BG, surface=SURFACE, primary=ACCENT, secondary=GOLD, outline=ACCENT,
+            on_primary="#ffffff", on_secondary="#ffffff", on_surface=TXT,
+        )
     )
 
     client = TestClient(backend.app)
@@ -832,8 +835,8 @@ def main(page: ft.Page):
         ]),
         stats_row,
         tf_search,
-        ft.Column([vault_list], scroll=ft.ScrollMode.AUTO, expand=True)
-    ], expand=True))
+        vault_list,
+    ], expand=True, spacing=10, scroll=ft.ScrollMode.AUTO))
 
     # ── Sidebar + Layout ──
     nav_icons = [
