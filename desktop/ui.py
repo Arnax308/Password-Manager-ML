@@ -3,12 +3,65 @@ import sys
 import time
 import json
 import datetime
+import os
+import winreg
 import app as backend
 from desktop import desktop_agent, set_overlay_callback
 from ui_theme import *
 import threading
 import uvicorn
 from fastapi.testclient import TestClient
+import pystray
+from PIL import Image, ImageDraw
+
+# ── Startup Registry Helpers ──
+APP_NAME = "LocalPass"
+REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+def _get_launch_command():
+    """Build the command that Windows will run at startup."""
+    venv_pythonw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    if not os.path.exists(venv_pythonw):
+        venv_pythonw = sys.executable  # fallback
+    ui_path = os.path.abspath(__file__)
+    return f'"{venv_pythonw}" "{ui_path}"'
+
+def is_startup_enabled():
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_READ)
+        val, _ = winreg.QueryValueEx(key, APP_NAME)
+        winreg.CloseKey(key)
+        return bool(val)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+
+def set_startup(enable: bool):
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
+        if enable:
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, _get_launch_command())
+        else:
+            try:
+                winreg.DeleteValue(key, APP_NAME)
+            except FileNotFoundError:
+                pass
+        winreg.CloseKey(key)
+    except OSError:
+        pass
+
+# ── Tray Icon Helpers ──
+def _create_tray_image():
+    """Draw a small green shield icon for the system tray."""
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    dc = ImageDraw.Draw(img)
+    # Shield shape
+    dc.rounded_rectangle([8, 6, 56, 54], radius=12, fill="#10b981")
+    # Lock keyhole
+    dc.ellipse([24, 18, 40, 34], fill="#0b1221")
+    dc.rectangle([29, 30, 35, 44], fill="#0b1221")
+    return img
 
 def run_api():
     uvicorn.run(backend.app, host="127.0.0.1", port=5000, log_level="error")
@@ -21,6 +74,40 @@ def main(page: ft.Page):
     page.window.height = 820
     page.window.resizable = True
     page.bgcolor = BG
+    page.window.prevent_close = True
+
+    # ── System Tray ──
+    tray_icon_ref = [None]
+
+    def on_tray_open(icon, item):
+        page.window.visible = True
+        page.window.minimized = False
+        page.window.focused = True
+        page.update()
+
+    def on_tray_quit(icon, item):
+        icon.stop()
+        page.window.prevent_close = False
+        page.window.destroy()
+
+    def start_tray():
+        menu = pystray.Menu(
+            pystray.MenuItem("Open LocalPass", on_tray_open, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Quit", on_tray_quit),
+        )
+        icon = pystray.Icon("LocalPass", _create_tray_image(), "LocalPass", menu)
+        tray_icon_ref[0] = icon
+        icon.run()
+
+    threading.Thread(target=start_tray, daemon=True).start()
+
+    def on_window_event(e):
+        if e.data == "close":
+            page.window.visible = False
+            page.update()
+
+    page.window.on_event = on_window_event
     page.fonts = {"Inter": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Regular.woff2"}
     page.theme = ft.Theme(
         font_family="Inter",
@@ -179,6 +266,7 @@ def main(page: ft.Page):
 
     btn_record_hotkey = ft.ElevatedButton("Record Keystroke", on_click=start_recording_hotkey)
     switch_theme = ft.Switch(label="Dark Mode", value=True)
+    switch_startup = ft.Switch(label="Launch on Startup", value=is_startup_enabled())
     
     dd_settings_position = ft.Dropdown(
         label="Popup Position",
@@ -211,6 +299,8 @@ def main(page: ft.Page):
         })
         if resp.status_code == 200:
             desktop_agent.start_listener(tf_settings_hotkey.value)
+            # Apply startup toggle
+            set_startup(switch_startup.value)
             show_success("Settings updated successfully.")
         else:
             show_error("Failed to update settings.")
@@ -636,6 +726,12 @@ def main(page: ft.Page):
             switch_theme,
             ft.Row([tf_settings_hotkey, btn_record_hotkey]),
             dd_settings_position,
+        ], spacing=10)),
+        ft.Container(height=10),
+        ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
+            ft.Text("SYSTEM", size=11, weight=ft.FontWeight.W_700, color=TXT3),
+            switch_startup,
+            ft.Text("When enabled, LocalPass will start automatically when Windows boots and minimize to the system tray.", size=11, color=TXT3, italic=True),
         ], spacing=10)),
         ft.Container(height=10),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([

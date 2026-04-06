@@ -7,3 +7,5 @@ pywinauto
 pydantic
 passlib
 requests
+pystray
+pillow
