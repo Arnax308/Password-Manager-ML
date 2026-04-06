@@ -272,9 +272,10 @@ def main(page: ft.Page):
     tf_edit_domain = ft.TextField(label="Domain / Website")
     tf_edit_username = ft.TextField(label="Username / Email")
     tf_edit_password = ft.TextField(label="Password", password=True, can_reveal_password=True)
-    dd_edit_note = ft.Dropdown(label="Link a Secure Note (Optional)")
+    current_edit_note_id = [None]
     current_edit_id = [None]
     creating_note_for_dropdown = [False]
+    viewing_associated_note = [False]
 
     def on_create_associated_note(e):
         creating_note_for_dropdown[0] = True
@@ -288,10 +289,23 @@ def main(page: ft.Page):
         edit_note_dialog.open = True
         page.update()
 
+    def on_view_associated_note(e):
+        viewing_associated_note[0] = True
+        edit_dialog.open = False
+        n_resp = client.get("/api/notes")
+        if n_resp.status_code == 200:
+            note = next((n for n in n_resp.json() if n["id"] == current_edit_note_id[0]), None)
+            if note:
+                show_edit_note(note)
+            else:
+                edit_dialog.open = True
+                page.update()
+
     btn_create_associated = ft.TextButton("Create Associated Note", on_click=on_create_associated_note, icon=ft.Icons.NOTE_ADD)
+    btn_view_note = ft.TextButton("View Note", on_click=on_view_associated_note, icon=ft.Icons.NOTE)
 
     def on_edit_save(e):
-        note_val = int(dd_edit_note.value) if dd_edit_note.value and dd_edit_note.value != "None" else None
+        note_val = current_edit_note_id[0]
         data = {"domain": tf_edit_domain.value, "username": tf_edit_username.value, "password": tf_edit_password.value, "note_id": note_val}
         if current_edit_id[0] is None:
             resp = client.post("/api/passwords", json=data)
@@ -307,7 +321,7 @@ def main(page: ft.Page):
 
     edit_dialog = ft.AlertDialog(
         title=ft.Text("Edit Credentials"),
-        content=ft.Column([tf_edit_domain, tf_edit_username, tf_edit_password, dd_edit_note, btn_create_associated], tight=True),
+        content=ft.Column([tf_edit_domain, tf_edit_username, tf_edit_password, btn_create_associated, btn_view_note], tight=True),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(edit_dialog, 'open', False) or page.update()),
             ft.ElevatedButton("Save", on_click=on_edit_save)
@@ -315,26 +329,28 @@ def main(page: ft.Page):
     )
 
     def show_edit_dialog(pw=None):
-        resp = client.get("/api/notes")
-        notes = resp.json() if resp.status_code == 200 else []
-        dd_edit_note.options = [ft.dropdown.Option("None", "None (No linked note)")] + [
-            ft.dropdown.Option(str(n['id']), n['title']) for n in notes
-        ]
-        
         if pw:
             edit_dialog.title.value = "Edit Existing Password"
             tf_edit_domain.value = pw['domain']
             tf_edit_username.value = pw['username']
             tf_edit_password.value = pw['password']
-            dd_edit_note.value = str(pw['note_id']) if pw.get('note_id') else "None"
+            current_edit_note_id[0] = pw.get('note_id')
             current_edit_id[0] = pw['id']
         else:
             edit_dialog.title.value = "Add New Custom Password"
             tf_edit_domain.value = ""
             tf_edit_username.value = ""
             tf_edit_password.value = ""
-            dd_edit_note.value = "None"
+            current_edit_note_id[0] = None
             current_edit_id[0] = None
+            
+        if current_edit_note_id[0]:
+            btn_create_associated.visible = False
+            btn_view_note.visible = True
+        else:
+            btn_create_associated.visible = True
+            btn_view_note.visible = False
+            
         edit_dialog.open = True
         page.update()
 
@@ -480,14 +496,20 @@ def main(page: ft.Page):
                 n_resp = client.get("/api/notes").json()
                 note = next((n for n in n_resp if n["title"] == tf_note_title.value), None)
                 if note:
-                    # Update dropdown options if needed and select it
-                    if str(note['id']) not in [opt.key for opt in dd_edit_note.options]:
-                        dd_edit_note.options.append(ft.dropdown.Option(str(note['id']), note['title']))
-                    dd_edit_note.value = str(note['id'])
+                    current_edit_note_id[0] = note['id']
+                    btn_create_associated.visible = False
+                    btn_view_note.visible = True
                 creating_note_for_dropdown[0] = False
                 edit_note_dialog.open = False
                 edit_dialog.open = True
                 show_success("Note created and linked!")
+                page.update()
+                return
+            elif viewing_associated_note[0]:
+                viewing_associated_note[0] = False
+                edit_note_dialog.open = False
+                edit_dialog.open = True
+                show_success("Note updated!")
                 page.update()
                 return
         
@@ -496,12 +518,20 @@ def main(page: ft.Page):
             refresh_notes(tf_notes_search.value)
         else:
             show_error(f"Error: {resp.json().get('detail')}")
+
+    def on_edit_note_cancel(e):
+        edit_note_dialog.open = False
+        if creating_note_for_dropdown[0] or viewing_associated_note[0]:
+            creating_note_for_dropdown[0] = False
+            viewing_associated_note[0] = False
+            edit_dialog.open = True
+        page.update()
             
     edit_note_dialog = ft.AlertDialog(
         title=ft.Text("Secure Note"),
         content=ft.Column([tf_note_title, tf_note_tags, cb_hide_content, tf_note_content], tight=True),
         actions=[
-            ft.TextButton("Cancel", on_click=lambda e: setattr(edit_note_dialog, 'open', False) or page.update()),
+            ft.TextButton("Cancel", on_click=on_edit_note_cancel),
             ft.ElevatedButton("Save", on_click=on_note_save)
         ]
     )
@@ -827,6 +857,7 @@ def main(page: ft.Page):
                                 content=ft.Text(ttl_txt, size=10, weight=ft.FontWeight.W_700, color=ttl_col),
                                 bgcolor=f"{ttl_col}15", border_radius=4,
                                 padding=ft.padding.symmetric(horizontal=6, vertical=2)),
+                            ft.IconButton(ft.Icons.NOTE, icon_size=15, icon_color=GOLD, tooltip="View Note", on_click=lambda e, nid=pw['note_id']: show_linked_note(nid)) if pw.get('note_id') else ft.IconButton(ft.Icons.NOTE_ADD, icon_size=15, icon_color=TXT3, tooltip="Create Associated Note", on_click=lambda e, p=pw: prepare_add_note_for_pw(p)),
                             ft.IconButton(ft.Icons.COPY, icon_size=15, icon_color=TXT3, tooltip="Copy",
                                 on_click=lambda e, p=pw['password']: page.set_clipboard(p) or show_success("Copied!")),
                             ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=15, icon_color=TXT3, tooltip="Edit",

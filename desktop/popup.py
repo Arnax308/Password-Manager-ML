@@ -292,7 +292,7 @@ def main(page: ft.Page):
             col_content.append(ft.Row([
                 ft.ElevatedButton("\U0001f464 User", tooltip="Fill Username Only", on_click=lambda e: handle_fill("user"), style=ft.ButtonStyle(padding=5)),
                 ft.ElevatedButton("\U0001f511 Pass", tooltip="Fill Password Only", on_click=lambda e: handle_fill("pass"), style=ft.ButtonStyle(padding=5)),
-                ft.ElevatedButton("Both", tooltip="Fill Both", on_click=lambda e: handle_fill("both"), style=ft.ButtonStyle(padding=5), bgcolor="#10b981"),
+                ft.ElevatedButton("Both", tooltip="Fill Both", on_click=lambda e: handle_fill("both"), style=ft.ButtonStyle(padding=5), bgcolor="#10b981", color=ft.Colors.WHITE),
             ], alignment=ft.MainAxisAlignment.END, spacing=5))
 
             return ft.Card(
@@ -458,7 +458,7 @@ def main(page: ft.Page):
                     lbl_ml_suggestion,
                     ml_buttons_row,
                     ft.Container(height=10),
-                    ft.ElevatedButton("Save & AutoFill", on_click=lambda e: on_save_edit(e, auto_fill=True), width=350, bgcolor="#10b981"),
+                    ft.ElevatedButton("Save & AutoFill", on_click=lambda e: on_save_edit(e, auto_fill=True), width=350, bgcolor="#10b981", color=ft.Colors.WHITE),
                     ft.TextButton("Save only", on_click=lambda e: on_save_edit(e, auto_fill=False), width=350)
                 ], expand=True),
                 padding=ft.padding.only(left=15, right=15, bottom=15),
