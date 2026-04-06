@@ -428,10 +428,10 @@ def main(page: ft.Page):
             ft.Container(height=8),
             ft.Row([
                 ft.ElevatedButton(
-                    content=ft.Text("Generate", color=ft.Colors.WHITE), icon=ft.Icons.REFRESH, on_click=on_generate_click, height=44,
+                    text="Generate", color=ft.Colors.WHITE, icon=ft.Icons.REFRESH, on_click=on_generate_click, height=44,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), side=ft.border.BorderSide(1, ACCENT))),
                 ft.ElevatedButton(
-                    content=ft.Text("Smart ML Generate", color=ft.Colors.WHITE), icon=ft.Icons.AUTO_AWESOME, on_click=on_smart_gen_click, height=44,
+                    text="Smart ML Generate", color=ft.Colors.WHITE, icon=ft.Icons.AUTO_AWESOME, on_click=on_smart_gen_click, height=44,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
             ], spacing=12)
         ], spacing=10))
@@ -593,7 +593,7 @@ def main(page: ft.Page):
 
     notes_view = ft.Container(padding=24, expand=True, content=ft.Column([
         ft.Row([ft.Text("Secure Notes", size=22, weight=ft.FontWeight.W_600, color=TXT), ft.Container(expand=True),
-                ft.ElevatedButton(content=ft.Text("Add Note", color=ft.Colors.WHITE), icon=ft.Icons.ADD, on_click=lambda e: show_edit_note(None),
+                ft.ElevatedButton(text="Add Note", color=ft.Colors.WHITE, icon=ft.Icons.ADD, on_click=lambda e: show_edit_note(None),
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT))]),
         ft.Container(height=4), tf_notes_search, ft.Container(height=8),
         ft.Column([notes_list_col], scroll=ft.ScrollMode.AUTO, expand=True)
@@ -614,7 +614,7 @@ def main(page: ft.Page):
             tf_settings_name, tf_settings_words,
         ], spacing=10)),
         ft.Container(height=10),
-        ft.ElevatedButton(content=ft.Text("Save Settings", color=ft.Colors.WHITE), on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
+        ft.ElevatedButton(text="Save Settings", color=ft.Colors.WHITE, on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
         ft.Container(height=20),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, f"{DANGER}30"), padding=20, content=ft.Column([
