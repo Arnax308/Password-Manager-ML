@@ -5,6 +5,7 @@ import json
 import datetime
 import os
 import winreg
+import subprocess
 import app as backend
 from desktop import desktop_agent, set_overlay_callback
 from ui_theme import *
@@ -1096,10 +1097,6 @@ def main(page: ft.Page):
         page.update()
 
     # --- Hotkey Integration Logic ---
-    import os
-    import sys
-    import subprocess
-
     _popup_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "popup.py")
 
     def _spawn_popup(window_title, hwnd, b64_typed, browser_url):
