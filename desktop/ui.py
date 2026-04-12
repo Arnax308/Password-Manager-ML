@@ -244,9 +244,20 @@ def main(page: ft.Page):
         expand=True,
     )
 
-    # --- UI Components: Settings Tab ---
-    tf_settings_name = ft.TextField(label="Your Name", width=400)
-    tf_settings_words = ft.TextField(label="Custom Sensitive Words (comma separated)", width=400, multiline=True)
+    # --- ML Profiling & Settings UI ---
+    tf_settings_name = ft.TextField(label="Complete Name", width=400)
+    cb_has_pet = ft.Switch(label="Do you have a pet?", value=False)
+    tf_settings_pet = ft.TextField(label="Write its name (separate with comma for multiple)", width=400, visible=False)
+    def on_pet_toggle(e):
+        tf_settings_pet.visible = cb_has_pet.value
+        page.update()
+    cb_has_pet.on_change = on_pet_toggle
+    
+    tf_settings_words = ft.TextField(
+        label="Things you are close to (e.g. relative's name, street name)",
+        hint_text="Adding things you are highly familiar with helps us severely score-drop nostalgic passwords using your personal data. Separate multiple items with commas.",
+        width=400, multiline=True, height=100
+    )
     tf_settings_hotkey = ft.TextField(label="Global Hotkey", width=300, read_only=True)
     is_recording_hotkey = [False]
     def on_key(e: ft.KeyboardEvent):
@@ -292,6 +303,9 @@ def main(page: ft.Page):
         if resp.status_code == 200:
             data = resp.json()
             tf_settings_name.value = data.get("user_name", "")
+            tf_settings_pet.value = data.get("pet_name", "")
+            cb_has_pet.value = bool(tf_settings_pet.value)
+            tf_settings_pet.visible = cb_has_pet.value
             tf_settings_words.value = ", ".join(data.get("custom_words", []))
             tf_settings_hotkey.value = data.get("hotkey", "ctrl+shift+l")
             dd_settings_position.value = data.get("popup_position", "top_right")
@@ -301,6 +315,7 @@ def main(page: ft.Page):
         words = [w.strip() for w in tf_settings_words.value.split(",") if w.strip()]
         resp = client.post("/api/settings", json={
             "user_name": tf_settings_name.value, 
+            "pet_name": tf_settings_pet.value,
             "custom_words": words,
             "hotkey": tf_settings_hotkey.value,
             "popup_position": dd_settings_position.value or "top_right"
@@ -742,12 +757,6 @@ def main(page: ft.Page):
             ft.Text("When enabled, Valtr will start automatically when Windows boots and minimize to the system tray.", size=11, color=TXT3, italic=True),
         ], spacing=10)),
         ft.Container(height=10),
-        ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
-            ft.Text("ML PROFILING", size=11, weight=ft.FontWeight.W_700, color=TXT3),
-            ft.Text("Help the ML engine penalise passwords built with your personal info.", size=12, color=TXT3),
-            tf_settings_name, tf_settings_words,
-        ], spacing=10)),
-        ft.Container(height=10),
         ft.ElevatedButton(text="Save Settings", color=ft.Colors.WHITE, on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
         ft.Container(height=20),
@@ -760,6 +769,22 @@ def main(page: ft.Page):
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)))
             ])
         ], spacing=10)),
+    ], scroll=ft.ScrollMode.AUTO))
+
+    ml_profiling_view = ft.Container(padding=24, expand=True, content=ft.Column([
+        ft.Text("ML Profiling", size=22, weight=ft.FontWeight.W_600, color=TXT),
+        ft.Container(height=8),
+        ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
+            ft.Text("PERSONAL DATA", size=11, weight=ft.FontWeight.W_700, color=TXT3),
+            ft.Text("Help the ML engine penalise passwords built with your personal info. We will dynamically slice this configuration to prevent easily guessable combinations.", size=12, color=TXT3),
+            tf_settings_name, 
+            cb_has_pet, 
+            tf_settings_pet, 
+            tf_settings_words,
+        ], spacing=10)),
+        ft.Container(height=10),
+        ft.ElevatedButton(text="Save Configuration", color=ft.Colors.WHITE, on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
     ], scroll=ft.ScrollMode.AUTO))
 
     # ── Vault ──
@@ -1022,6 +1047,7 @@ def main(page: ft.Page):
         (ft.Icons.STICKY_NOTE_2_OUTLINED, ft.Icons.STICKY_NOTE_2, "Notes"),
         (ft.Icons.PASSWORD_OUTLINED, ft.Icons.PASSWORD, "Generator"),
         (ft.Icons.SETTINGS_OUTLINED, ft.Icons.SETTINGS, "Settings"),
+        (ft.Icons.AUTO_AWESOME_OUTLINED, ft.Icons.AUTO_AWESOME, "ML Profiling"),
     ]
     nav_btns = []
     for i, (icon_off, icon_on, tip) in enumerate(nav_icons):
@@ -1039,11 +1065,11 @@ def main(page: ft.Page):
             btn.bgcolor = f"{ACCENT}18" if active else "transparent"
             btn.content.name = nav_icons[j][1] if active else nav_icons[j][0]
             btn.content.color = ACCENT if active else TXT3
-        views = [vault_view, notes_view, generator_view, settings_view]
+        views = [vault_view, notes_view, generator_view, settings_view, ml_profiling_view]
         main_content.content = views[idx]
         if idx == 0: refresh_vault()
         elif idx == 1: refresh_notes()
-        elif idx == 3: load_settings()
+        elif idx in [3, 4]: load_settings()
         page.update()
 
     def on_lock(e):

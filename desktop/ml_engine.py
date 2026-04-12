@@ -5,8 +5,18 @@ from collections import defaultdict
 
 class MLEngine:
     def __init__(self):
-        # A lightweight set of "breach patterns" and common dictionary words for scoring.
-        self.common_patterns = ['password', '123456', 'qwerty', 'admin', 'welcome', 'letmein', 'monkey']
+        # Load the 100k RockYou derived wordlist
+        self.common_patterns = set()
+        import os
+        try:
+            path = os.path.join(os.path.dirname(__file__), "common_passwords.txt")
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    self.common_patterns = set(line.strip().lower() for line in f if line.strip())
+            else:
+                self.common_patterns = set(['password', '123456', 'qwerty', 'admin', 'welcome', 'letmein', 'monkey'])
+        except Exception:
+            self.common_patterns = set(['password', '123456', 'qwerty', 'admin', 'welcome', 'letmein', 'monkey'])
         
     def score_password(self, password: str, user_info: list[str]) -> tuple[float, int]:
         """
@@ -31,15 +41,35 @@ class MLEngine:
         
         password_lower = password.lower()
         
-        # Penalize if it contains personal info
+        # Penalize if it contains personal info (Negative Dictionary generation)
+        negative_dict = set()
+        import re
         for info in user_info:
-            if info and len(info) > 3 and info.lower() in password_lower:
-                score -= 0.3
+            if not info: continue
+            info_clean = info.lower()
+            negative_dict.add(info_clean)
+            parts = re.split(r'[\s.,_-]+', info_clean)
+            for p in parts:
+                if len(p) >= 3:
+                    negative_dict.add(p)
+                    negative_dict.add(p + "123")
+                    negative_dict.add(p + "1234")
+                    negative_dict.add(p + "2024")
+                    negative_dict.add(p + "2025")
+                    
+        for nd in negative_dict:
+            if len(nd) >= 3 and nd in password_lower:
+                score -= 0.6
                 
-        # Penalize common patterns
-        for pat in self.common_patterns:
-            if pat in password_lower:
-                score -= 0.3
+        # Penalize common breach patterns via fast substring subset matching
+        breach_applied = False
+        for i in range(len(password_lower)):
+            for j in range(i + 4, len(password_lower) + 1):
+                sub = password_lower[i:j]
+                if sub in self.common_patterns:
+                    if not breach_applied:
+                        score -= 0.5
+                        breach_applied = True
                 
         # Entropy approximation
         charset_size = 0

@@ -32,9 +32,10 @@ def notify_update():
 def get_user_info():
     import json
     name = database.get_config('user_name') or ""
+    pet = database.get_config('pet_name') or ""
     words_str = database.get_config('custom_words')
     words = json.loads(words_str) if words_str else []
-    return [name] + words
+    return [name, pet] + words
 
 
 def validate_master_password(password: str):
@@ -57,6 +58,7 @@ class SetupRequest(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     user_name: str
+    pet_name: str
     custom_words: List[str]
     hotkey: str
     popup_position: str = "top_right"
@@ -575,16 +577,18 @@ def export_csv(req: ImportExportRequest):
 def get_settings():
     import json
     name = database.get_config('user_name') or ""
+    pet = database.get_config('pet_name') or ""
     words_str = database.get_config('custom_words')
     words = json.loads(words_str) if words_str else []
     hotkey = database.get_config('hotkey') or "ctrl+shift+l"
     popup_position = database.get_config('popup_position') or "top_right"
-    return {"user_name": name, "custom_words": words, "hotkey": hotkey, "popup_position": popup_position}
+    return {"user_name": name, "pet_name": pet, "custom_words": words, "hotkey": hotkey, "popup_position": popup_position}
 
 @app.post("/api/settings")
 def update_settings(req: SettingsUpdateRequest):
     import json
     database.save_config('user_name', req.user_name.strip())
+    database.save_config('pet_name', req.pet_name.strip())
     database.save_config('custom_words', json.dumps(req.custom_words))
     database.save_config('hotkey', req.hotkey.strip())
     database.save_config('popup_position', req.popup_position.strip())
