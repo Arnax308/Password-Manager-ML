@@ -15,7 +15,7 @@ import pystray
 from PIL import Image, ImageDraw
 
 # ── Startup Registry Helpers ──
-APP_NAME = "LocalPass"
+APP_NAME = "Valtr"
 REG_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 def _get_launch_command():
@@ -53,12 +53,19 @@ def set_startup(enable: bool):
 
 # ── Tray Icon Helpers ──
 def _create_tray_image():
-    """Draw a small green shield icon for the system tray."""
+    """Load new logo for system tray icon"""
+    try:
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+        if os.path.exists(logo_path):
+            img = Image.open(logo_path)
+            img.thumbnail((64, 64))
+            return img
+    except Exception:
+        pass
+    
     img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     dc = ImageDraw.Draw(img)
-    # Shield shape
     dc.rounded_rectangle([8, 6, 56, 54], radius=12, fill="#10b981")
-    # Lock keyhole
     dc.ellipse([24, 18, 40, 34], fill="#0b1221")
     dc.rectangle([29, 30, 35, 44], fill="#0b1221")
     return img
@@ -67,7 +74,7 @@ def run_api():
     uvicorn.run(backend.app, host="127.0.0.1", port=5000, log_level="error")
 
 def main(page: ft.Page):
-    page.title = "LocalPass"
+    page.title = "Valtr"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
     page.window.width = 1150
@@ -92,11 +99,11 @@ def main(page: ft.Page):
 
     def start_tray():
         menu = pystray.Menu(
-            pystray.MenuItem("Open LocalPass", on_tray_open, default=True),
+            pystray.MenuItem("Open Valtr", on_tray_open, default=True),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", on_tray_quit),
         )
-        icon = pystray.Icon("LocalPass", _create_tray_image(), "LocalPass", menu)
+        icon = pystray.Icon("Valtr", _create_tray_image(), "Valtr", menu)
         tray_icon_ref[0] = icon
         icon.run()
 
@@ -216,11 +223,11 @@ def main(page: ft.Page):
                     shadow=ft.BoxShadow(blur_radius=60, color="#00000060"),
                     content=ft.Column([
                         ft.Container(
-                            content=ft.Icon(ft.Icons.SHIELD_ROUNDED, size=40, color=ACCENT),
+                            content=ft.Image(src=os.path.abspath(os.path.join(os.path.dirname(__file__), "logo.png")), width=48, height=48, fit=ft.ImageFit.CONTAIN),
                             width=72, height=72, border_radius=36,
                             border=ft.border.all(2, GOLD), alignment=ft.alignment.center),
                         ft.Container(height=6),
-                        ft.Text("LocalPass", size=28, weight=ft.FontWeight.BOLD, color=TXT),
+                        ft.Text("Valtr", size=28, weight=ft.FontWeight.BOLD, color=TXT),
                         ft.Text("Your offline password vault", size=13, color=TXT3),
                         ft.Container(height=16),
                         tf_setup_name,
@@ -731,7 +738,7 @@ def main(page: ft.Page):
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
             ft.Text("SYSTEM", size=11, weight=ft.FontWeight.W_700, color=TXT3),
             switch_startup,
-            ft.Text("When enabled, LocalPass will start automatically when Windows boots and minimize to the system tray.", size=11, color=TXT3, italic=True),
+            ft.Text("When enabled, Valtr will start automatically when Windows boots and minimize to the system tray.", size=11, color=TXT3, italic=True),
         ], spacing=10)),
         ft.Container(height=10),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
@@ -1050,7 +1057,7 @@ def main(page: ft.Page):
         padding=ft.padding.symmetric(vertical=12),
         content=ft.Column([
             ft.Container(
-                content=ft.Text("LP", size=16, weight=ft.FontWeight.BOLD, color=ACCENT),
+                content=ft.Image(src=os.path.abspath(os.path.join(os.path.dirname(__file__), "logo.png")), width=26, height=26, fit=ft.ImageFit.CONTAIN),
                 width=40, height=40, border_radius=12, bgcolor=CARD,
                 border=ft.border.all(1, GOLD_DIM),
                 alignment=ft.alignment.center,

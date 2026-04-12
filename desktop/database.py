@@ -3,7 +3,8 @@ import os
 import json
 from datetime import datetime
 
-DB_PATH = os.environ.get("LOCALPASS_DB", "vault.db")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.environ.get("VALTR_DB", os.path.join(BASE_DIR, "vault.db"))
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)

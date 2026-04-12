@@ -10,7 +10,7 @@ from ml_engine import ml_engine
 import base64
 import time
 
-app = FastAPI(title="LocalPass API")
+app = FastAPI(title="Valtr API")
 
 # Allow the browser extension (and local Flet UI) to communicate
 app.add_middleware(

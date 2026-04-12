@@ -12,10 +12,10 @@ from urllib.parse import urlparse
 session = requests.Session()
 session.trust_env = False  # Ignore HTTP_PROXY and Windows proxies
 
-TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "localpass_popup_trigger.json")
+TRIGGER_FILE = os.path.join(os.environ.get("TEMP", "."), "valtr_popup_trigger.json")
 
 def main(page: ft.Page):
-    page.title = "LocalPass AutoFill"
+    page.title = "Valtr AutoFill"
     page.window.width = 380
     page.window.height = 480
     page.window.frameless = True

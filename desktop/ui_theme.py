@@ -1,4 +1,4 @@
-# ── LocalPass Design Tokens ──
+# ── Valtr Design Tokens ──
 BG      = "#090d1a"
 SURFACE = "#111827"
 CARD    = "#192338"

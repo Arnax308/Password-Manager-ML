@@ -1,5 +1,5 @@
 import os
-os.environ["LOCALPASS_DB"] = "test_vault.db"
+os.environ["VALTR_DB"] = "test_vault.db"
 
 import encryption
 from ml_engine import ml_engine
