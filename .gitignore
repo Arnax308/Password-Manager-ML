@@ -20,3 +20,6 @@ venv.bak/
 .idea/
 
 test_vault.db
+
+# Logs
+valtr_startup.log
