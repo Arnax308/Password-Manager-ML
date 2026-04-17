@@ -1,13 +1,23 @@
-import flet as ft
+# ── Logging Setup FIRST (before any imports that might call basicConfig) ──
+import logging
+import os
 import sys
+
+_LOG_DIR = os.path.dirname(os.path.abspath(__file__))
+_LOG_FILE = os.path.join(_LOG_DIR, "valtr_startup.log")
+_fh = logging.FileHandler(_LOG_FILE, encoding="utf-8")
+_fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S"))
+logging.root.addHandler(_fh)
+logging.root.setLevel(logging.INFO)
+
+import flet as ft
 import time
 import json
 import datetime
-import os
 import winreg
 import subprocess
 import app as backend
-from desktop import desktop_agent, set_overlay_callback
+from desktop import desktop_agent
 from ui_theme import *
 import threading
 import uvicorn
@@ -71,8 +81,31 @@ def _create_tray_image():
     dc.rectangle([29, 30, 35, 44], fill="#0b1221")
     return img
 
+def _is_port_free(port=5000):
+    """Check whether localhost:<port> is available for binding."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
 def run_api():
-    uvicorn.run(backend.app, host="127.0.0.1", port=5000, log_level="error")
+    """Start uvicorn. Retries up to 3 times if the port is initially busy."""
+    for attempt in range(1, 4):
+        if not _is_port_free(5000):
+            logging.warning("Port 5000 is busy (attempt %d/3), waiting 2s…", attempt)
+            time.sleep(2)
+            continue
+        try:
+            logging.info("Starting uvicorn on 127.0.0.1:5000 (attempt %d)", attempt)
+            uvicorn.run(backend.app, host="127.0.0.1", port=5000, log_level="error")
+            return  # normal shutdown
+        except Exception as exc:
+            logging.error("uvicorn crashed on attempt %d: %s", attempt, exc)
+            time.sleep(1)
+    logging.critical("Backend server failed to start after 3 attempts.")
 
 def main(page: ft.Page):
     page.title = "Valtr"
@@ -1147,14 +1180,15 @@ def main(page: ft.Page):
             daemon=True
         ).start()
 
-    set_overlay_callback(handle_global_hotkey)
-
-    # Initialize Hotkey from settings payload
+    # Load the configured hotkey, then set up the overlay callback with it
     try:
         settings_cache = client.get("/api/settings").json()
-        desktop_agent.start_listener(settings_cache.get("hotkey", "ctrl+shift+l"))
+        hotkey = settings_cache.get("hotkey", "ctrl+shift+l")
     except Exception:
-        desktop_agent.start_listener("ctrl+shift+l")
+        hotkey = "ctrl+shift+l"
+
+    desktop_agent.on_hotkey_callback = handle_global_hotkey
+    desktop_agent.start_listener(hotkey)
 
     def on_db_change():
         if page.appbar:
@@ -1166,7 +1200,47 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
+    # ── Single-Instance Guard (Windows named mutex) ──
+    import ctypes
+    _mutex = ctypes.windll.kernel32.CreateMutexW(None, True, "Global\\ValtrSingleInstanceMutex")
+    if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        ctypes.windll.kernel32.CloseHandle(_mutex)
+        sys.exit(0)
+
+    logging.info("=== Valtr starting (PID %d) ===", os.getpid())
+
+    # Kill any zombie uvicorn still holding port 5000 from a prior crash
+    if not _is_port_free(5000):
+        logging.warning("Port 5000 already in use — attempting to free it.")
+        try:
+            subprocess.run(
+                'for /f "tokens=5" %a in (\'netstat -ano ^| findstr :5000 ^| findstr LISTENING\') do taskkill /F /PID %a',
+                shell=True, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            time.sleep(1)
+        except Exception:
+            pass
+
     api_thread = threading.Thread(target=run_api, daemon=True)
     api_thread.start()
-    time.sleep(1)
+
+    # Wait for API to be ready (up to 15 seconds with detailed logging)
+    import requests as _req
+    _session = _req.Session()
+    _session.trust_env = False  # bypass Windows proxy / DNS delays
+    _api_ready = False
+    for _attempt in range(30):
+        try:
+            _r = _session.get("http://127.0.0.1:5000/api/status", timeout=1)
+            if _r.status_code == 200:
+                logging.info("Backend ready after %d poll(s).", _attempt + 1)
+                _api_ready = True
+                break
+        except Exception:
+            pass
+        time.sleep(0.5)
+
+    if not _api_ready:
+        logging.error("Backend did NOT become ready within 15 s — popup autofill will fail.")
+
     ft.app(target=main)

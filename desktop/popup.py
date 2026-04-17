@@ -173,16 +173,24 @@ def main(page: ft.Page):
         page.window.opacity = 1
         page.update()
 
-        try:
-            status = session.get(f"{API_URL}/api/status").json()
-            if not status.get("is_unlocked"):
-                page.controls.clear()
-                page.add(app_bar, ft.Divider(), ft.Text("Vault is Locked. Please open main app.", color=ft.Colors.RED_300))
-                page.update()
-                return
-        except Exception:
+        # Retry connecting to the backend (it may still be starting up)
+        status = None
+        for _try in range(10):
+            try:
+                status = session.get(f"{API_URL}/api/status", timeout=1).json()
+                break
+            except Exception:
+                time.sleep(0.5)
+
+        if status is None:
             page.controls.clear()
-            page.add(app_bar, ft.Divider(), ft.Text("Could not connect to backend."))
+            page.add(app_bar, ft.Divider(), ft.Text("Could not connect to backend after retries.", color=ft.Colors.RED_300))
+            page.update()
+            return
+
+        if not status.get("is_unlocked"):
+            page.controls.clear()
+            page.add(app_bar, ft.Divider(), ft.Text("Vault is Locked. Please open main app.", color=ft.Colors.RED_300))
             page.update()
             return
 

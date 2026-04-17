@@ -4,7 +4,7 @@ import time
 from pywinauto import keyboard as pykeyboard, application
 import threading
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 import base64
 
@@ -98,7 +98,7 @@ class DesktopIntegration:
         except: pass
 
     def start_listener(self, hotkey="ctrl+shift+l"):
-        logging.info(f"Starting global hotkey listener for {hotkey}")
+        logger.info(f"Starting global hotkey listener for {hotkey}")
         try:
             keyboard.unhook_all_hotkeys()
             keyboard.unhook(keylog_callback)
@@ -159,7 +159,7 @@ class DesktopIntegration:
         return ""
 
     def _summon_search(self):
-        logging.info("Hotkey pressed. Summoning Flet UI Overlay...")
+        logger.info("Hotkey pressed. Summoning Flet UI Overlay...")
 
         import ctypes
 
@@ -185,7 +185,7 @@ class DesktopIntegration:
 
     def autotype(self, username, password):
         """Auto-types the credentials into the previous active window."""
-        logging.info(f"Auto-typing for {username}...")
+        logger.info(f"Auto-typing for {username}...")
         
         if self.active_window_before_search:
             try:
@@ -205,9 +205,9 @@ class DesktopIntegration:
                 pykeyboard.send_keys("{ENTER}")
                 
             except Exception as e:
-                logging.error(f"Failed to auto-type: {e}")
+                logger.error(f"Failed to auto-type: {e}")
         else:
-            logging.warning("No active window to auto-type into.")
+            logger.warning("No active window to auto-type into.")
 
 desktop_agent = DesktopIntegration(None)
 
