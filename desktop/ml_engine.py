@@ -89,77 +89,145 @@ class MLEngine:
         
         return score, ttl_days
 
+    # ── Structural HMM Constants ──
+    STATES = ['U', 'L', 'D', 'S']  # Upper, Lower, Digit, Symbol
+    DAMPING = 0.80  # 80% personal emission, 20% random teleportation
+
+    # Full character pools per class (used for the "teleport" branch)
+    _POOL = {
+        'U': 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+        'L': 'abcdefghijklmnopqrstuvwxyz',
+        'D': '0123456789',
+        'S': '!@#$%^&*-_=+.,:;?~',
+    }
+
+    @staticmethod
+    def _classify(ch: str) -> str:
+        """Map a character to its structural class."""
+        if ch.isupper():  return 'U'
+        if ch.islower():  return 'L'
+        if ch.isdigit():  return 'D'
+        return 'S'
+
+    def _build_hmm(self, passwords: list[str]):
+        """Parse passwords into structural sequences and build HMM parameters.
+
+        Returns (start_dist, trans_matrix, emissions):
+          - start_dist:   dict[state] -> float   (initial state probabilities)
+          - trans_matrix:  dict[state] -> dict[state] -> float  (row-normalised)
+          - emissions:    dict[state] -> dict[char] -> int  (raw counts)
+        """
+        start_counts = defaultdict(int)
+        trans_counts = {s: defaultdict(int) for s in self.STATES}
+        emissions    = {s: defaultdict(int) for s in self.STATES}
+
+        for pw in passwords:
+            if len(pw) < 2:
+                continue
+            seq = [self._classify(c) for c in pw]
+
+            # Starting state
+            start_counts[seq[0]] += 1
+
+            # Transitions & emissions
+            for i, (cls, ch) in enumerate(zip(seq, pw)):
+                emissions[cls][ch] += 1
+                if i < len(seq) - 1:
+                    trans_counts[cls][seq[i + 1]] += 1
+
+        # Normalise start distribution (add-1 smoothing)
+        total_start = sum(start_counts.values()) + len(self.STATES)
+        start_dist = {s: (start_counts[s] + 1) / total_start for s in self.STATES}
+
+        # Normalise transition rows (add-1 smoothing)
+        trans_matrix = {}
+        for s in self.STATES:
+            row_total = sum(trans_counts[s].values()) + len(self.STATES)
+            trans_matrix[s] = {t: (trans_counts[s][t] + 1) / row_total for t in self.STATES}
+
+        return start_dist, trans_matrix, emissions
+
+    def _weighted_pick(self, dist: dict) -> str:
+        """Pick a key from {key: probability} using weighted random selection."""
+        keys = list(dist.keys())
+        weights = [dist[k] for k in keys]
+        return random.choices(keys, weights=weights, k=1)[0]
+
+    def _emit_char(self, state: str, emissions: dict) -> str:
+        """Emit a character for the given state using 80/20 damping.
+
+        80% chance: pick proportionally from the user's observed characters.
+        20% chance: pick uniformly from the full character pool (teleport).
+        """
+        if random.random() < self.DAMPING and emissions[state]:
+            # Personal branch — weighted by user frequency
+            return self._weighted_pick(emissions[state])
+        else:
+            # Teleport branch — uniform random from all chars in this class
+            return secrets.choice(self._POOL[state])
+
     def generate_personalized_password(self, user_passwords: list[str]) -> str:
         """
-        Uses a lightweight Markov Chain trained on the user's provided passwords to
-        generate a new password that matches their syntactic "style" but is randomly generated.
+        Structural HMM generator with PageRank-style damping.
+
+        Learns the user's password *rhythm* (transitions between character classes)
+        and character preferences, then generates a new password that feels personal
+        without regurgitating existing ones.
         """
         if not user_passwords or len(user_passwords) < 3:
-            # Fallback if vault is too small
-            chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*"
-            return "".join(secrets.choice(chars) for _ in range(16))
-            
-        # Build 2-gram (Bigram) Markov chain
-        chain = defaultdict(list)
-        starts = []
-        
-        for pw in user_passwords:
-            if len(pw) < 2: continue
-            starts.append(pw[:2])
-            for i in range(len(pw) - 2):
-                gram = pw[i:i+2]
-                next_char = pw[i+2]
-                chain[gram].append(next_char)
-                
-        # Generate new password
-        target_len = random.randint(14, 20)
-        current = random.choice(starts) if starts else "Ab"
-        res = current
-        
-        while len(res) < target_len:
-            gram = res[-2:]
-            if gram in chain and chain[gram]:
-                res += secrets.choice(chain[gram])
-            else:
-                # Add random valid char if chain breaks
-                res += secrets.choice("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%")
+            # Fallback: fully random if vault is too sparse
+            pool = self._POOL['U'] + self._POOL['L'] + self._POOL['D'] + self._POOL['S']
+            return "".join(secrets.choice(pool) for _ in range(16))
 
-        # --- Chunk Jumbling ---
-        # Split into chunks of size 4 to 6
-        chunk_size = max(4, target_len // 3)
-        chunks = [res[i:i+chunk_size] for i in range(0, len(res), chunk_size)]
-        random.shuffle(chunks)
-        res = "".join(chunks)
+        start_dist, trans_matrix, emissions = self._build_hmm(user_passwords)
 
-        # --- Leetspeak Substitution ---
-        leetspeak_map = {
-            'a': '4', 'A': '4',
-            'e': '3', 'E': '3',
-            'i': '1', 'I': '1',
-            'o': '0', 'O': '0',
-            's': '5', 'S': '5',
-            't': '7', 'T': '7',
-            'b': '8', 'B': '8',
-            'g': '9', 'G': '9'
-        }
-        
-        final_res = []
-        for char in res:
-            # 40% chance of replacing eligible characters
-            if char in leetspeak_map and random.random() < 0.4:
-                final_res.append(leetspeak_map[char])
-            else:
-                final_res.append(char)
-        res = "".join(final_res)
+        # Derive target length from user's password length distribution
+        lengths = [len(p) for p in user_passwords if len(p) >= 4]
+        avg_len = sum(lengths) / len(lengths) if lengths else 14
+        target_len = max(14, min(24, int(avg_len + random.gauss(0, 2))))
 
-        # To ensure it doesn't exactly match an old one
-        if res in user_passwords:
-            res += secrets.choice("!@#$%^&*0123456789")
-            
-        # Ensure at least one special character is present for baseline metric safety
-        if not any(not c.isalnum() for c in res):
-            res += secrets.choice("!@#$%^&*")
-            
-        return res
+        # Retry loop: generate, validate, retry if too weak (max 20 attempts)
+        pw_set = set(user_passwords)
+        best_candidate = None
+        best_score = -1.0
+
+        for _ in range(20):
+            # 1. Pick starting state
+            state = self._weighted_pick(start_dist)
+            chars = []
+
+            # 2. Walk the HMM
+            for _ in range(target_len):
+                chars.append(self._emit_char(state, emissions))
+                state = self._weighted_pick(trans_matrix[state])
+
+            candidate = "".join(chars)
+
+            # 3. Reject exact duplicates
+            if candidate in pw_set:
+                continue
+
+            # 4. Ensure all four character classes are present
+            classes_present = set(self._classify(c) for c in candidate)
+            if len(classes_present) < 4:
+                # Inject one random char from each missing class
+                for cls in self.STATES:
+                    if cls not in classes_present:
+                        pos = secrets.randbelow(len(candidate))
+                        candidate = candidate[:pos] + secrets.choice(self._POOL[cls]) + candidate[pos + 1:]
+
+            # 5. Score and keep the best
+            score, _ = self.score_password(candidate, [])
+            if score > best_score:
+                best_score = score
+                best_candidate = candidate
+
+            # Accept immediately if score is strong enough
+            if score >= 0.6:
+                return candidate
+
+        return best_candidate or "".join(secrets.choice(
+            self._POOL['U'] + self._POOL['L'] + self._POOL['D'] + self._POOL['S']
+        ) for _ in range(16))
 
 ml_engine = MLEngine()
