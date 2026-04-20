@@ -364,6 +364,60 @@ def main(page: ft.Page):
     tf_auto_lock_minutes = ft.TextField(label="Auto-Lock Minutes", value="15", width=150)
     sw_fetch_favicons = ft.Switch(label="Fetch Website Favicons", value=False)
 
+    category_mgmt_list = ft.Column(spacing=4)
+    
+    tf_cat_rename = ft.TextField(label="New Category Name")
+    current_rename_cat = [None]
+    current_delete_cat = [None]
+    
+    cat_rename_dialog = ft.AlertDialog(
+        title=ft.Text("Rename Category"),
+        content=tf_cat_rename,
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: setattr(cat_rename_dialog, 'open', False) or page.update()),
+            ft.ElevatedButton("Rename", on_click=lambda e: _submit_cat_rename())
+        ]
+    )
+    
+    cat_delete_dialog = ft.AlertDialog(
+        title=ft.Text("Delete Category"),
+        content=ft.Text("Are you sure you want to delete this custom category? Passwords currently mapped to it will simply be uncategorized."),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: setattr(cat_delete_dialog, 'open', False) or page.update()),
+            ft.ElevatedButton("Delete", color=DANGER, on_click=lambda e: _submit_cat_delete())
+        ]
+    )
+    
+    def _submit_cat_rename():
+        old_name = current_rename_cat[0]
+        new_name = tf_cat_rename.value.strip()
+        if new_name and old_name:
+            client.put(f"/api/categories/{old_name}", json={"new_name": new_name})
+            show_success(f"Renamed category to {new_name}")
+            cat_rename_dialog.open = False
+            page.update()
+            load_settings()
+            refresh_vault()
+            
+    def _submit_cat_delete():
+        name = current_delete_cat[0]
+        if name:
+            client.delete(f"/api/categories/{name}")
+            show_success(f"Deleted category: {name}")
+            cat_delete_dialog.open = False
+            page.update()
+            load_settings()
+            refresh_vault()
+
+    def build_cat_row(c):
+        return ft.Container(padding=12, bgcolor=SURFACE, border_radius=8, border=ft.border.all(1, BORDER), content=ft.Row([
+            ft.Text(c, expand=True, size=13, weight=ft.FontWeight.W_600, color=TXT),
+            ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=15, icon_color=TXT3, tooltip="Rename",
+                on_click=lambda e: (current_rename_cat.__setitem__(0, c), setattr(tf_cat_rename, 'value', c), setattr(cat_rename_dialog, 'open', True), page.update())),
+            ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=15, icon_color=DANGER, tooltip="Delete",
+                on_click=lambda e: (current_delete_cat.__setitem__(0, c), setattr(cat_delete_dialog, 'open', True), page.update()))
+        ]))
+
     def load_settings():
         resp = client.get("/api/settings")
         if resp.status_code == 200:
@@ -378,6 +432,19 @@ def main(page: ft.Page):
             switch_auto_lock.value = data.get("auto_lock_enabled", True)
             tf_auto_lock_minutes.value = str(data.get("auto_lock_minutes", 15))
             sw_fetch_favicons.value = data.get("fetch_favicons", False)
+            
+            # Load custom categories
+            category_mgmt_list.controls.clear()
+            r_cat = client.get("/api/categories")
+            if r_cat.status_code == 200:
+                presets = ["Work", "Personal", "Finance", "Social", "Entertainment", "Other"]
+                cats = r_cat.json()
+                customs = [c for c in cats if c not in presets]
+                if not customs:
+                    category_mgmt_list.controls.append(ft.Text("No custom categories created yet.", size=12, color=TXT3, italic=True))
+                for c in customs:
+                    category_mgmt_list.controls.append(build_cat_row(c))
+            
             page.update()
             
     def save_settings(e):
@@ -906,6 +973,12 @@ def main(page: ft.Page):
         ft.Container(height=10),
         ft.ElevatedButton(text="Save Settings", color=ft.Colors.WHITE, on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
+        ft.Container(height=20),
+        ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
+            ft.Text("CATEGORY MANAGEMENT", size=11, weight=ft.FontWeight.W_700, color=TXT3),
+            ft.Text("Manage your custom categories created inside your vault.", size=11, color=TXT3, italic=True),
+            category_mgmt_list
+        ], spacing=10)),
         ft.Container(height=20),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, f"{DANGER}30"), padding=20, content=ft.Column([
             ft.Text("DANGER ZONE", size=11, weight=ft.FontWeight.W_700, color=DANGER),
@@ -1498,8 +1571,8 @@ def main(page: ft.Page):
     content_switcher = ft.AnimatedSwitcher(
         content=vault_view, expand=True,
         transition=ft.AnimatedSwitcherTransition.SCALE,
-        duration=ANIM_NORMAL, switch_in_curve=ft.AnimationCurve.EASE_IN,
-        switch_out_curve=ft.AnimationCurve.EASE_OUT)
+        duration=ANIM_NORMAL + 150, switch_in_curve=ft.AnimationCurve.EASE_OUT_BACK,
+        switch_out_curve=ft.AnimationCurve.EASE_IN)
     app_layout = ft.Row([sidebar, content_switcher], expand=True, spacing=0)
 
     def show_main_app():

@@ -188,6 +188,20 @@ def get_categories():
     conn.close()
     return [r[0] for r in rows]
 
+def rename_category_in_db(old_name: str, new_name: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE passwords SET category = ? WHERE category = ?', (new_name, old_name))
+    conn.commit()
+    conn.close()
+
+def delete_category_in_db(name: str):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE passwords SET category = NULL WHERE category = ?', (name,))
+    conn.commit()
+    conn.close()
+
 def add_note(title: str, enc_content: str, tags: str, nonce: str, is_hidden: bool = True):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()

@@ -136,6 +136,12 @@ class NoteResponse(BaseModel):
     created_at: str
     updated_at: str
 
+class CategoryRequest(BaseModel):
+    name: str
+
+class CategoryRenameRequest(BaseModel):
+    new_name: str
+
 @app.on_event("startup")
 def startup():
     database.init_db()
@@ -646,15 +652,54 @@ def update_settings(req: SettingsUpdateRequest):
 
 @app.get("/api/categories")
 def get_categories():
-    """Return preset + user-created categories."""
+    """Return preset + user-created categories (from config + db)."""
     presets = ["Work", "Personal", "Finance", "Social", "Entertainment", "Other"]
     user_cats = database.get_categories()
-    # Merge: presets first, then any custom ones not already in presets
+    config_cats_str = database.get_config('custom_categories')
+    config_cats = json.loads(config_cats_str) if config_cats_str else []
+    
     all_cats = list(presets)
-    for c in user_cats:
+    for c in user_cats + config_cats:
         if c not in all_cats:
             all_cats.append(c)
     return all_cats
+
+@app.post("/api/categories")
+def create_category(req: CategoryRequest):
+    cat_name = req.name.strip()
+    config_cats_str = database.get_config('custom_categories')
+    config_cats = json.loads(config_cats_str) if config_cats_str else []
+    if cat_name not in config_cats:
+        config_cats.append(cat_name)
+        database.save_config('custom_categories', json.dumps(config_cats))
+    return cat_name
+
+@app.put("/api/categories/{old_name}")
+def rename_category(old_name: str, req: CategoryRenameRequest):
+    new_name = req.new_name.strip()
+    config_cats_str = database.get_config('custom_categories')
+    config_cats = json.loads(config_cats_str) if config_cats_str else []
+    if old_name in config_cats:
+        config_cats.remove(old_name)
+    if new_name not in config_cats:
+        config_cats.append(new_name)
+        database.save_config('custom_categories', json.dumps(config_cats))
+    
+    database.rename_category_in_db(old_name, new_name)
+    notify_update()
+    return {"message": "Category renamed"}
+
+@app.delete("/api/categories/{name}")
+def delete_category(name: str):
+    config_cats_str = database.get_config('custom_categories')
+    config_cats = json.loads(config_cats_str) if config_cats_str else []
+    if name in config_cats:
+        config_cats.remove(name)
+        database.save_config('custom_categories', json.dumps(config_cats))
+        
+    database.delete_category_in_db(name)
+    notify_update()
+    return {"message": "Category deleted"}
 
 @app.post("/api/notes")
 def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
