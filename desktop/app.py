@@ -3,19 +3,23 @@ from pydantic import BaseModel
 from typing import List, Optional
 import os
 import secrets
+import json
+import csv
+import io
+import time
+import datetime
+import base64
 from fastapi.middleware.cors import CORSMiddleware
 import database
 import encryption
 from ml_engine import ml_engine
-import base64
-import time
 
 app = FastAPI(title="Valtr API")
 
 # Allow the browser extension (and local Flet UI) to communicate
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In a real highly secure scenario, restrict to extension ID if possible
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,13 +28,16 @@ app.add_middleware(
 CURRENT_KEY: bytes | None = None
 ON_DB_UPDATE = []
 
+# ── Rate Limiting State ──
+_unlock_failures = 0
+_last_failure_time = 0.0
+
 def notify_update():
     for cb in ON_DB_UPDATE:
         try: cb()
         except: pass
 
 def get_user_info():
-    import json
     name = database.get_config('user_name') or ""
     pet = database.get_config('pet_name') or ""
     words_str = database.get_config('custom_words')
@@ -62,6 +69,9 @@ class SettingsUpdateRequest(BaseModel):
     custom_words: List[str]
     hotkey: str
     popup_position: str = "top_right"
+    auto_lock_enabled: bool = True
+    auto_lock_minutes: int = 15
+    fetch_favicons: bool = False
 
 class ImportExportRequest(BaseModel):
     master_password: str
@@ -82,12 +92,14 @@ class PasswordSaveRequest(BaseModel):
     username: str
     password: str
     note_id: Optional[int] = None
+    category: Optional[str] = None
 
 class PasswordUpdateRequest(BaseModel):
     domain: str
     username: str
     password: str
     note_id: Optional[int] = None
+    category: Optional[str] = None
 
 class PasswordResponse(BaseModel):
     id: int
@@ -101,6 +113,7 @@ class PasswordResponse(BaseModel):
     is_decayed: bool
     note_id: Optional[int] = None
     history: List[dict] = []
+    category: Optional[str] = None
 
 class NoteSaveRequest(BaseModel):
     title: str
@@ -151,7 +164,6 @@ def setup_vault(req: SetupRequest):
     
     # Store creation and TTL
     database.save_config('user_name', req.user_name.strip())
-    import json
     database.save_config('custom_words', json.dumps([]))
     score, master_ttl = ml_engine.score_password(req.master_password, get_user_info())
     database.save_config('master_created_at', str(int(time.time())))
@@ -165,6 +177,19 @@ def setup_vault(req: SetupRequest):
 
 @app.post("/api/unlock")
 def unlock_vault(req: UnlockRequest):
+    global _unlock_failures, _last_failure_time
+
+    # Rate limiting: exponential backoff after 3 failures
+    if _unlock_failures >= 3:
+        backoff = min(30, 2 ** (_unlock_failures - 3))
+        elapsed = time.time() - _last_failure_time
+        if elapsed < backoff:
+            remaining = round(backoff - elapsed, 1)
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed attempts. Try again in {remaining}s."
+            )
+
     if not database.is_vault_setup():
         raise HTTPException(status_code=400, detail="Vault not configured")
         
@@ -175,8 +200,11 @@ def unlock_vault(req: UnlockRequest):
     if encryption.verify_master_password(req.master_password, salt, test_cipher, test_nonce):
         global CURRENT_KEY
         CURRENT_KEY = encryption.derive_key(req.master_password, salt)
+        _unlock_failures = 0  # Reset on success
         return {"message": "Vault unlocked"}
     else:
+        _unlock_failures += 1
+        _last_failure_time = time.time()
         raise HTTPException(status_code=401, detail="Invalid master password")
 
 @app.post("/api/lock")
@@ -201,12 +229,12 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
     # 3. Decrypt all passwords using old key
     rows = database.get_passwords()
     decrypted_items = []
+    skipped_passwords = 0
     for r in rows:
         c = base64.b64decode(r["encrypted_password"])
         n = base64.b64decode(r["nonce"])
         try:
             pt = encryption.decrypt_data(c, n, key)
-            import json
             dec_hist = []
             if r.get("history") and r["history"] != "[]":
                 try:
@@ -221,13 +249,14 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
                             pass
                 except Exception:
                     pass
-            decrypted_items.append((r["id"], r["domain"], r["username"], pt, r["ttl_days"], r["strength_score"], r.get("note_id"), dec_hist))
+            decrypted_items.append((r["id"], r["domain"], r["username"], pt, r["ttl_days"], r["strength_score"], r.get("note_id"), dec_hist, r.get("category")))
         except Exception:
-            pass # Skip corrupted
+            skipped_passwords += 1
             
     # 3b. Decrypt all notes
     note_rows = database.get_notes()
     decrypted_notes = []
+    skipped_notes = 0
     for nr in note_rows:
         nc = base64.b64decode(nr["encrypted_content"])
         nn = base64.b64decode(nr["nonce"])
@@ -235,50 +264,60 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
             n_pt = encryption.decrypt_data(nc, nn, key)
             decrypted_notes.append((nr["id"], nr["title"], n_pt))
         except Exception:
-            pass
+            skipped_notes += 1
             
     # 4. Generate new master derivation
     new_salt, new_tc, new_tn = encryption.setup_vault_keys(req.new_password)
     new_key = encryption.derive_key(req.new_password, new_salt)
     
-    # 5. Re-encrypt and update DB
-    for pid, domain, username, pt, ttl, score, note_id, dec_hist in decrypted_items:
-        new_c, new_n = encryption.encrypt_data(pt, new_key)
-        import json
-        new_hist = []
-        for h in dec_hist:
-            hc, hn = encryption.encrypt_data(h["pt"], new_key)
-            new_hist.append({
-                "encrypted_password": base64.b64encode(hc).decode('utf-8'),
-                "nonce": base64.b64encode(hn).decode('utf-8'),
-                "timestamp": h["timestamp"]
-            })
+    # 5. Re-encrypt and update DB — use a single connection for transactional safety
+    import sqlite3
+    conn = sqlite3.connect(database.DB_PATH)
+    try:
+        cursor = conn.cursor()
+        now = datetime.datetime.now().isoformat()
+        
+        for pid, domain, username, pt, ttl, score, note_id, dec_hist, category in decrypted_items:
+            new_c, new_n = encryption.encrypt_data(pt, new_key)
+            new_hist = []
+            for h in dec_hist:
+                hc, hn = encryption.encrypt_data(h["pt"], new_key)
+                new_hist.append({
+                    "encrypted_password": base64.b64encode(hc).decode('utf-8'),
+                    "nonce": base64.b64encode(hn).decode('utf-8'),
+                    "timestamp": h["timestamp"]
+                })
+                
+            cursor.execute('''
+                UPDATE passwords 
+                SET domain = ?, username = ?, encrypted_password = ?, nonce = ?, updated_at = ?, ttl_days = ?, strength_score = ?, note_id = ?, history = ?, category = ?
+                WHERE id = ?
+            ''', (domain, username, base64.b64encode(new_c).decode('utf-8'),
+                  base64.b64encode(new_n).decode('utf-8'), now, ttl, score, note_id,
+                  json.dumps(new_hist), category, pid))
             
-        database.update_password(
-            pid,
-            domain,
-            username,
-            base64.b64encode(new_c).decode('utf-8'),
-            base64.b64encode(new_n).decode('utf-8'),
-            ttl,
-            score,
-            note_id,
-            json.dumps(new_hist)
-        )
+        for nid, title, n_pt in decrypted_notes:
+            n_new_c, n_new_n = encryption.encrypt_data(n_pt, new_key)
+            cursor.execute('''
+                UPDATE notes SET title = ?, encrypted_content = ?, nonce = ?
+                WHERE id = ?
+            ''', (title, base64.b64encode(n_new_c).decode('utf-8'),
+                  base64.b64encode(n_new_n).decode('utf-8'), nid))
+
+        # 6. Update config within the same transaction
+        cursor.execute('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+                       ('salt', base64.b64encode(new_salt).decode('utf-8')))
+        cursor.execute('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+                       ('test_cipher', base64.b64encode(new_tc).decode('utf-8')))
+        cursor.execute('INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)',
+                       ('test_nonce', base64.b64encode(new_tn).decode('utf-8')))
         
-    for nid, title, n_pt in decrypted_notes:
-        n_new_c, n_new_n = encryption.encrypt_data(n_pt, new_key)
-        database.update_note(
-            nid,
-            title,
-            base64.b64encode(n_new_c).decode('utf-8'),
-            base64.b64encode(n_new_n).decode('utf-8')
-        )
-        
-    # 6. Update config
-    database.save_config('salt', base64.b64encode(new_salt).decode('utf-8'))
-    database.save_config('test_cipher', base64.b64encode(new_tc).decode('utf-8'))
-    database.save_config('test_nonce', base64.b64encode(new_tn).decode('utf-8'))
+        conn.commit()
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Re-encryption failed, vault unchanged. Error: {exc}")
+    finally:
+        conn.close()
     
     score, master_ttl = ml_engine.score_password(req.new_password, get_user_info())
     database.save_config('master_created_at', str(int(time.time())))
@@ -288,7 +327,11 @@ def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
     global CURRENT_KEY
     CURRENT_KEY = new_key
     
-    return {"message": "Master password changed successfully."}
+    msg = "Master password changed successfully."
+    if skipped_passwords or skipped_notes:
+        msg += f" ({skipped_passwords} passwords and {skipped_notes} notes could not be decrypted and were left unchanged.)"
+    
+    return {"message": msg}
 
 @app.post("/api/reset")
 def reset_vault():
@@ -350,7 +393,8 @@ def save_password(req: PasswordSaveRequest, key: bytes = Depends(require_auth)):
         base64.b64encode(nonce).decode('utf-8'),
         ttl_days=ttl_days,
         strength_score=score,
-        note_id=req.note_id
+        note_id=req.note_id,
+        category=req.category
     )
     notify_update()
     return {"message": "Password saved successfully"}
@@ -370,7 +414,6 @@ def update_password(item_id: int, req: PasswordUpdateRequest, key: bytes = Depen
     except Exception:
         old_pt = ""
         
-    import json
     history_arr = []
     if existing_item.get("history") and existing_item["history"] != "[]":
         try:
@@ -379,7 +422,6 @@ def update_password(item_id: int, req: PasswordUpdateRequest, key: bytes = Depen
             pass
 
     if old_pt and old_pt != req.password:
-        import datetime
         now_str = datetime.datetime.now().isoformat()
         history_arr.append({
             "encrypted_password": existing_item["encrypted_password"],
@@ -399,7 +441,8 @@ def update_password(item_id: int, req: PasswordUpdateRequest, key: bytes = Depen
         ttl_days=ttl_days,
         strength_score=score,
         note_id=req.note_id,
-        history=json.dumps(history_arr)
+        history=json.dumps(history_arr),
+        category=req.category
     )
     notify_update()
     return {"message": "Password updated successfully"}
@@ -415,7 +458,6 @@ def get_all_passwords(key: bytes = Depends(require_auth)):
     rows = database.get_passwords()
     results = []
     
-    import datetime
     now = datetime.datetime.now()
     
     for r in rows:
@@ -434,7 +476,6 @@ def get_all_passwords(key: bytes = Depends(require_auth)):
         age_days = (now - created_at).days
         is_decayed = age_days > ttl_days
             
-        import json
         history_plain = []
         if r.get("history") and r["history"] != "[]":
             try:
@@ -464,7 +505,8 @@ def get_all_passwords(key: bytes = Depends(require_auth)):
             strength_score=r["strength_score"] or 0.5,
             is_decayed=is_decayed,
             note_id=r.get("note_id"),
-            history=history_plain
+            history=history_plain,
+            category=r.get("category")
         ))
     return results
 
@@ -499,7 +541,6 @@ def import_csv(req: ImportRequest):
         raise HTTPException(status_code=401, detail="Invalid master password")
     
     key = encryption.derive_key(req.master_password, salt)
-    import csv, io
     reader = csv.DictReader(io.StringIO(req.csv_content))
     imported_count = 0
     info = get_user_info()
@@ -557,7 +598,6 @@ def export_csv(req: ImportExportRequest):
     key = encryption.derive_key(req.master_password, salt)
     rows = database.get_passwords()
     
-    import csv, io
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(['name', 'url', 'username', 'password'])
@@ -575,24 +615,46 @@ def export_csv(req: ImportExportRequest):
 
 @app.get("/api/settings")
 def get_settings():
-    import json
     name = database.get_config('user_name') or ""
     pet = database.get_config('pet_name') or ""
     words_str = database.get_config('custom_words')
     words = json.loads(words_str) if words_str else []
     hotkey = database.get_config('hotkey') or "ctrl+shift+l"
     popup_position = database.get_config('popup_position') or "top_right"
-    return {"user_name": name, "pet_name": pet, "custom_words": words, "hotkey": hotkey, "popup_position": popup_position}
+    auto_lock_enabled = database.get_config('auto_lock_enabled') or "true"
+    auto_lock_minutes = database.get_config('auto_lock_minutes') or "15"
+    fetch_favicons = database.get_config('fetch_favicons') or "false"
+    return {
+        "user_name": name, "pet_name": pet, "custom_words": words,
+        "hotkey": hotkey, "popup_position": popup_position,
+        "auto_lock_enabled": auto_lock_enabled == "true",
+        "auto_lock_minutes": int(auto_lock_minutes),
+        "fetch_favicons": fetch_favicons == "true"
+    }
 
 @app.post("/api/settings")
 def update_settings(req: SettingsUpdateRequest):
-    import json
     database.save_config('user_name', req.user_name.strip())
     database.save_config('pet_name', req.pet_name.strip())
     database.save_config('custom_words', json.dumps(req.custom_words))
     database.save_config('hotkey', req.hotkey.strip())
     database.save_config('popup_position', req.popup_position.strip())
+    database.save_config('auto_lock_enabled', "true" if req.auto_lock_enabled else "false")
+    database.save_config('auto_lock_minutes', str(req.auto_lock_minutes))
+    database.save_config('fetch_favicons', "true" if req.fetch_favicons else "false")
     return {"message": "Settings updated"}
+
+@app.get("/api/categories")
+def get_categories():
+    """Return preset + user-created categories."""
+    presets = ["Work", "Personal", "Finance", "Social", "Entertainment", "Other"]
+    user_cats = database.get_categories()
+    # Merge: presets first, then any custom ones not already in presets
+    all_cats = list(presets)
+    for c in user_cats:
+        if c not in all_cats:
+            all_cats.append(c)
+    return all_cats
 
 @app.post("/api/notes")
 def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
@@ -601,7 +663,6 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
         raise HTTPException(status_code=409, detail="Note with this title already exists. Use update instead.")
         
     ciphertext, nonce = encryption.encrypt_data(req.content, key)
-    import json
     
     database.add_note(
         req.title,
@@ -616,7 +677,6 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
 @app.put("/api/notes/{item_id}")
 def update_note(item_id: int, req: NoteUpdateRequest, key: bytes = Depends(require_auth)):
     ciphertext, nonce = encryption.encrypt_data(req.content, key)
-    import json
     database.update_note(
         n_id=item_id,
         title=req.title,
@@ -638,7 +698,6 @@ def remove_note(item_id: int, key: bytes = Depends(require_auth)):
 def get_all_notes(key: bytes = Depends(require_auth)):
     rows = database.get_notes()
     results = []
-    import json
     for r in rows:
         ciphertext = base64.b64decode(r["encrypted_content"])
         nonce = base64.b64decode(r["nonce"])

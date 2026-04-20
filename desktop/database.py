@@ -52,6 +52,11 @@ def init_db():
         cursor.execute("ALTER TABLE passwords ADD COLUMN history TEXT DEFAULT '[]'")
     except sqlite3.OperationalError:
         pass
+
+    try:
+        cursor.execute("ALTER TABLE passwords ADD COLUMN category TEXT DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass
     
     # Table to store encrypted passwords
     cursor.execute('''
@@ -94,26 +99,26 @@ def get_config(key: str):
 def is_vault_setup() -> bool:
     return get_config('salt') is not None
 
-def add_password(domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float, note_id: int = None, history: str = '[]'):
+def add_password(domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float, note_id: int = None, history: str = '[]', category: str = None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
-        INSERT INTO passwords (domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (domain, username, enc_pass, nonce, now, now, ttl_days, strength_score, note_id, history))
+        INSERT INTO passwords (domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history, category)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (domain, username, enc_pass, nonce, now, now, ttl_days, strength_score, note_id, history, category))
     conn.commit()
     conn.close()
 
-def update_password(p_id: int, domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float, note_id: int = None, history: str = '[]'):
+def update_password(p_id: int, domain: str, username: str, enc_pass: str, nonce: str, ttl_days: int, strength_score: float, note_id: int = None, history: str = '[]', category: str = None):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     now = datetime.now().isoformat()
     cursor.execute('''
         UPDATE passwords 
-        SET domain = ?, username = ?, encrypted_password = ?, nonce = ?, updated_at = ?, ttl_days = ?, strength_score = ?, note_id = ?, history = ?
+        SET domain = ?, username = ?, encrypted_password = ?, nonce = ?, updated_at = ?, ttl_days = ?, strength_score = ?, note_id = ?, history = ?, category = ?
         WHERE id = ?
-    ''', (domain, username, enc_pass, nonce, now, ttl_days, strength_score, note_id, history, p_id))
+    ''', (domain, username, enc_pass, nonce, now, ttl_days, strength_score, note_id, history, category, p_id))
     conn.commit()
     conn.close()
 
@@ -127,7 +132,7 @@ def delete_password(p_id: int):
 def get_passwords():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cursor.execute('SELECT id, domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history FROM passwords')
+    cursor.execute('SELECT id, domain, username, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history, category FROM passwords')
     rows = cursor.fetchall()
     conn.close()
     
@@ -144,7 +149,8 @@ def get_passwords():
             "ttl_days": r[7],
             "strength_score": r[8],
             "note_id": r[9] if len(r) > 9 else None,
-            "history": r[10] if len(r) > 10 and r[10] else '[]'
+            "history": r[10] if len(r) > 10 and r[10] else '[]',
+            "category": r[11] if len(r) > 11 else None
         })
     return results
 
@@ -152,7 +158,7 @@ def get_password_by_domain_user(domain: str, username: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT id, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history 
+        SELECT id, encrypted_password, nonce, created_at, updated_at, ttl_days, strength_score, note_id, history, category 
         FROM passwords 
         WHERE domain = ? AND username = ?
     ''', (domain, username))
@@ -168,9 +174,19 @@ def get_password_by_domain_user(domain: str, username: str):
             "ttl_days": row[5],
             "strength_score": row[6],
             "note_id": row[7] if len(row) > 7 else None,
-            "history": row[8] if len(row) > 8 and row[8] else '[]'
+            "history": row[8] if len(row) > 8 and row[8] else '[]',
+            "category": row[9] if len(row) > 9 else None
         }
     return None
+
+def get_categories():
+    """Return list of distinct non-null categories from passwords."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('SELECT DISTINCT category FROM passwords WHERE category IS NOT NULL ORDER BY category')
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 def add_note(title: str, enc_content: str, tags: str, nonce: str, is_hidden: bool = True):
     conn = sqlite3.connect(DB_PATH)

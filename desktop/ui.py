@@ -11,6 +11,8 @@ logging.root.addHandler(_fh)
 logging.root.setLevel(logging.INFO)
 
 import flet as ft
+import flet.canvas as cv
+import math
 import time
 import json
 import datetime
@@ -19,6 +21,7 @@ import subprocess
 import app as backend
 from desktop import desktop_agent
 from ui_theme import *
+import favicon_cache
 import threading
 import uvicorn
 from fastapi.testclient import TestClient
@@ -179,14 +182,24 @@ def main(page: ft.Page):
         return ft.Container(content=ft.Text(text, size=11, weight=ft.FontWeight.W_700, color=ft.Colors.WHITE),
             bgcolor=color, border_radius=6, padding=ft.padding.symmetric(horizontal=8, vertical=3))
 
-    def strength_dots(score):
-        filled = int(score * 5)
+    def strength_gauge(score, size=40):
+        """Render a semi-circle arc gauge colored by strength score."""
         c = DANGER if score < 0.4 else (WARN if score < 0.7 else ACCENT)
-        dots = []
-        for i in range(5):
-            dots.append(ft.Container(width=10, height=10, border_radius=5,
-                bgcolor=c if i < filled else "#1e293b"))
-        return ft.Row(dots, spacing=3)
+        bg_paint = ft.Paint(stroke_width=4, style=ft.PaintingStyle.STROKE, color="#1e293b", stroke_cap=ft.StrokeCap.ROUND)
+        fg_paint = ft.Paint(stroke_width=4, style=ft.PaintingStyle.STROKE, color=c, stroke_cap=ft.StrokeCap.ROUND)
+        sweep = math.pi * max(0.05, score)  # proportional sweep (half circle = 1.0)
+        canvas = cv.Canvas(
+            shapes=[
+                cv.Arc(x=2, y=2, width=size-4, height=size-4, start_angle=math.pi, sweep_angle=math.pi, paint=bg_paint),
+                cv.Arc(x=2, y=2, width=size-4, height=size-4, start_angle=math.pi, sweep_angle=sweep, paint=fg_paint),
+            ],
+            width=size, height=size // 2 + 4,
+        )
+        label = f"{int(score * 100)}%"
+        return ft.Column([
+            canvas,
+            ft.Text(label, size=9, weight=ft.FontWeight.W_700, color=c, text_align=ft.TextAlign.CENTER),
+        ], spacing=0, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=size)
 
     def stat_box(label, value, icon, color):
         return ft.Container(expand=True, bgcolor=CARD, border_radius=12,
@@ -247,34 +260,50 @@ def main(page: ft.Page):
         on_click=on_setup, width=360, height=46, bgcolor=ACCENT,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)))
 
-    auth_container = ft.Column(
-        [
-            ft.Container(expand=True),
-            ft.Row(
-                [ft.Container(
-                    width=420, padding=36, border_radius=20, bgcolor=SURFACE,
-                    border=ft.border.all(1, BORDER),
-                    shadow=ft.BoxShadow(blur_radius=60, color="#00000060"),
-                    content=ft.Column([
-                        ft.Container(
-                            content=ft.Image(src=os.path.abspath(os.path.join(os.path.dirname(__file__), "logo.png")), width=48, height=48, fit=ft.ImageFit.CONTAIN),
-                            width=72, height=72, border_radius=36,
-                            border=ft.border.all(2, GOLD), alignment=ft.alignment.center),
-                        ft.Container(height=6),
-                        ft.Text("Valtr", size=28, weight=ft.FontWeight.BOLD, color=TXT),
-                        ft.Text("Your offline password vault", size=13, color=TXT3),
-                        ft.Container(height=16),
-                        tf_setup_name,
-                        tf_master_password,
-                        ft.Container(height=8),
-                        btn_login, btn_setup, lbl_auth_error,
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
-                )],
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-            ft.Container(expand=True),
-        ],
+    tagline_text = ft.Text("", size=13, color=TXT3)
+    
+    # Typing animation for tagline
+    def type_tagline():
+        full_text = "Your offline password vault"
+        current_text = ""
+        for char in full_text:
+            current_text += char
+            tagline_text.value = current_text
+            page.update()
+            time.sleep(0.04)
+
+    logo_container = ft.Container(
+        content=ft.Image(src=os.path.abspath(os.path.join(os.path.dirname(__file__), "logo.png")), width=48, height=48, fit=ft.ImageFit.CONTAIN),
+        width=72, height=72, border_radius=36,
+        border=ft.border.all(2, GOLD), alignment=ft.alignment.center,
+        shadow=ft.BoxShadow(blur_radius=20, color=f"{GOLD}40", spread_radius=2))
+
+    auth_card = ft.Container(
+        width=420, padding=36, border_radius=20, bgcolor=SURFACE,
+        border=ft.border.all(1, BORDER),
+        shadow=ft.BoxShadow(blur_radius=60, color="#00000080", spread_radius=10),
+        content=ft.Column([
+            logo_container,
+            ft.Container(height=6),
+            ft.Text("Valtr", size=28, weight=ft.FontWeight.BOLD, color=TXT),
+            tagline_text,
+            ft.Container(height=16),
+            tf_setup_name,
+            tf_master_password,
+            ft.Container(height=8),
+            btn_login, btn_setup, lbl_auth_error,
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+    )
+
+    auth_container = ft.Container(
         expand=True,
+        alignment=ft.alignment.center,
+        gradient=ft.LinearGradient(
+            begin=ft.alignment.top_left,
+            end=ft.alignment.bottom_right,
+            colors=[GRAD_1, GRAD_2, GRAD_3, GRAD_1]
+        ),
+        content=auth_card
     )
 
     # --- ML Profiling & Settings UI ---
@@ -331,6 +360,10 @@ def main(page: ft.Page):
         ]
     )
 
+    switch_auto_lock = ft.Switch(label="Enable Auto-Lock", value=True)
+    tf_auto_lock_minutes = ft.TextField(label="Auto-Lock Minutes", value="15", width=150)
+    sw_fetch_favicons = ft.Switch(label="Fetch Website Favicons", value=False)
+
     def load_settings():
         resp = client.get("/api/settings")
         if resp.status_code == 200:
@@ -342,16 +375,28 @@ def main(page: ft.Page):
             tf_settings_words.value = ", ".join(data.get("custom_words", []))
             tf_settings_hotkey.value = data.get("hotkey", "ctrl+shift+l")
             dd_settings_position.value = data.get("popup_position", "top_right")
+            switch_auto_lock.value = data.get("auto_lock_enabled", True)
+            tf_auto_lock_minutes.value = str(data.get("auto_lock_minutes", 15))
+            sw_fetch_favicons.value = data.get("fetch_favicons", False)
             page.update()
             
     def save_settings(e):
         words = [w.strip() for w in tf_settings_words.value.split(",") if w.strip()]
+        try:
+            mins = int(tf_auto_lock_minutes.value)
+            if mins < 1: mins = 1
+        except:
+            mins = 15
+        
         resp = client.post("/api/settings", json={
             "user_name": tf_settings_name.value, 
             "pet_name": tf_settings_pet.value,
             "custom_words": words,
             "hotkey": tf_settings_hotkey.value,
-            "popup_position": dd_settings_position.value or "top_right"
+            "popup_position": dd_settings_position.value or "top_right",
+            "auto_lock_enabled": switch_auto_lock.value,
+            "auto_lock_minutes": mins,
+            "fetch_favicons": sw_fetch_favicons.value
         })
         if resp.status_code == 200:
             desktop_agent.start_listener(tf_settings_hotkey.value)
@@ -418,6 +463,21 @@ def main(page: ft.Page):
     tf_edit_domain = ft.TextField(label="Domain / Website")
     tf_edit_username = ft.TextField(label="Username / Email")
     tf_edit_password = ft.TextField(label="Password", password=True, can_reveal_password=True)
+    
+    # Category UI
+    dd_edit_category = ft.Dropdown(label="Category", width=200, options=[])
+    tf_new_category = ft.TextField(label="New Category Name", width=200, visible=False)
+    
+    def on_category_change(e):
+        if dd_edit_category.value == "__NEW__":
+            tf_new_category.visible = True
+        else:
+            tf_new_category.visible = False
+            tf_new_category.value = ""
+        page.update()
+        
+    dd_edit_category.on_change = on_category_change
+
     current_edit_note_id = [None]
     current_edit_id = [None]
     creating_note_for_dropdown = [False]
@@ -452,7 +512,23 @@ def main(page: ft.Page):
 
     def on_edit_save(e):
         note_val = current_edit_note_id[0]
-        data = {"domain": tf_edit_domain.value, "username": tf_edit_username.value, "password": tf_edit_password.value, "note_id": note_val}
+        
+        # Resolve category
+        cat_val = dd_edit_category.value
+        if cat_val == "__NEW__":
+            cat_name = tf_new_category.value.strip()
+            if not cat_name:
+                show_error("Please enter a custom category name.")
+                return
+            # Create category first
+            r = client.post("/api/categories", json={"name": cat_name})
+            if r.status_code == 200:
+                cat_val = r.json()
+            else:
+                show_error("Failed to create custom category.")
+                return
+                
+        data = {"domain": tf_edit_domain.value, "username": tf_edit_username.value, "password": tf_edit_password.value, "note_id": note_val, "category": cat_val}
         if current_edit_id[0] is None:
             resp = client.post("/api/passwords", json=data)
         else:
@@ -467,12 +543,33 @@ def main(page: ft.Page):
 
     edit_dialog = ft.AlertDialog(
         title=ft.Text("Edit Credentials"),
-        content=ft.Column([tf_edit_domain, tf_edit_username, tf_edit_password, btn_create_associated, btn_view_note], tight=True),
+        content=ft.Column([
+            tf_edit_domain, tf_edit_username, tf_edit_password,
+            ft.Row([dd_edit_category, tf_new_category]),
+            ft.Row([btn_create_associated, btn_view_note])
+        ], tight=True),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(edit_dialog, 'open', False) or page.update()),
             ft.ElevatedButton("Save", on_click=on_edit_save)
         ]
     )
+
+    def load_categories_for_dropdown(selected_cat=None):
+        dd_edit_category.options.clear()
+        r = client.get("/api/categories")
+        if r.status_code == 200:
+            cats = r.json()
+            for c in cats:
+                dd_edit_category.options.append(ft.dropdown.Option(c))
+        dd_edit_category.options.append(ft.dropdown.Option("__NEW__", "+ New Category"))
+        
+        if selected_cat and selected_cat in cats:
+            dd_edit_category.value = selected_cat
+        else:
+            dd_edit_category.value = None
+            
+        tf_new_category.visible = False
+        tf_new_category.value = ""
 
     def show_edit_dialog(pw=None):
         if pw:
@@ -482,6 +579,7 @@ def main(page: ft.Page):
             tf_edit_password.value = pw['password']
             current_edit_note_id[0] = pw.get('note_id')
             current_edit_id[0] = pw['id']
+            load_categories_for_dropdown(pw.get('category'))
         else:
             edit_dialog.title.value = "Add New Custom Password"
             tf_edit_domain.value = ""
@@ -489,6 +587,7 @@ def main(page: ft.Page):
             tf_edit_password.value = ""
             current_edit_note_id[0] = None
             current_edit_id[0] = None
+            load_categories_for_dropdown()
             
         if current_edit_note_id[0]:
             btn_create_associated.visible = False
@@ -765,6 +864,17 @@ def main(page: ft.Page):
                         tags_row, content_preview,
                     ], spacing=6))
                 notes_list_col.controls.append(tile)
+
+            if not notes_list_col.controls:
+                notes_list_col.controls.append(ft.Container(
+                    expand=True, alignment=ft.alignment.center, padding=40,
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.STICKY_NOTE_2_OUTLINED, size=64, color=BORDER),
+                        ft.Text("No secure notes yet.", size=18, weight=ft.FontWeight.W_600, color=TXT),
+                        ft.Text("Store free-form sensitive info like recovery codes here.", size=13, color=TXT3),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)
+                ))
+
         page.update()
 
     notes_view = ft.Container(padding=24, expand=True, content=ft.Column([
@@ -780,14 +890,18 @@ def main(page: ft.Page):
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
             ft.Text("APPEARANCE", size=11, weight=ft.FontWeight.W_700, color=TXT3),
             switch_theme,
+            sw_fetch_favicons,
             ft.Row([tf_settings_hotkey, btn_record_hotkey]),
             dd_settings_position,
         ], spacing=10)),
         ft.Container(height=10),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
-            ft.Text("SYSTEM", size=11, weight=ft.FontWeight.W_700, color=TXT3),
+            ft.Text("SYSTEM & SECURITY", size=11, weight=ft.FontWeight.W_700, color=TXT3),
             switch_startup,
             ft.Text("When enabled, Valtr will start automatically when Windows boots and minimize to the system tray.", size=11, color=TXT3, italic=True),
+            ft.Container(height=8),
+            ft.Row([switch_auto_lock, tf_auto_lock_minutes]),
+            ft.Text("Auto-lock requires the app to be idle for the specified minutes (even in the background).", size=11, color=TXT3, italic=True),
         ], spacing=10)),
         ft.Container(height=10),
         ft.ElevatedButton(text="Save Settings", color=ft.Colors.WHITE, on_click=save_settings, icon=ft.Icons.SAVE, width=300, height=48,
@@ -946,10 +1060,12 @@ def main(page: ft.Page):
                 ft.Row([btn_edit, btn_save, btn_delete, btn_note, btn_history])
             ], scroll=ft.ScrollMode.AUTO))
 
-        def open_domain_popup(dom, pw_list, pw_counts, now):
+        def open_domain_popup(dom, pw_list, pw_counts, now, selected_category=None):
             domain_dialog.title.value = f"Accounts for {dom}"
             tabs = ft.Tabs(selected_index=0, expand=True)
             for pw in pw_list:
+                if selected_category and selected_category != "All" and pw.get('category') != selected_category:
+                    continue
                 tabs.tabs.append(ft.Tab(text=pw['username'], content=build_account_tab(pw, pw_counts, now)))
             domain_dialog.content.content = tabs
             domain_dialog.open = True; page.update()
@@ -957,7 +1073,26 @@ def main(page: ft.Page):
         resp = client.get("/api/passwords")
         if resp.status_code == 200:
             passwords = resp.json()
+            
+            # Apply category filter if active
+            selected_category = dd_vault_category_filter.value
+            if selected_category and selected_category != "All":
+                passwords = [p for p in passwords if p.get('category') == selected_category]
+                
             total_count = len(passwords)
+            
+            if total_count == 0 and not search_query and (not selected_category or selected_category == "All"):
+                vault_list.controls.append(ft.Container(
+                    expand=True, alignment=ft.alignment.center, padding=40,
+                    content=ft.Column([
+                        ft.Icon(ft.Icons.SHIELD_OUTLINED, size=64, color=BORDER),
+                        ft.Text("Your vault is empty.", size=18, weight=ft.FontWeight.W_600, color=TXT),
+                        ft.Text("Click the + button to add your first password.", size=13, color=TXT3),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)
+                ))
+                page.update()
+                return
+
             weak_count = sum(1 for p in passwords if p.get("strength_score", 1.0) < 0.5)
             pw_counts = {}
             for p in passwords:
@@ -1007,6 +1142,12 @@ def main(page: ft.Page):
                     if pw_counts.get(pw["password"], 0) > 1: issues.append(pill("Reused", WARN))
                     if remaining <= 0: issues.append(pill("Expired", DANGER))
 
+                    cat_name = pw.get("category")
+                    if cat_name:
+                        from ui_theme import CATEGORY_COLORS, CATEGORY_DEFAULT_COLOR
+                        cat_color = CATEGORY_COLORS.get(cat_name, CATEGORY_DEFAULT_COLOR)
+                        issues.insert(0, pill(cat_name, cat_color))
+
                     account_controls.append(ft.Container(
                         bgcolor=SURFACE, border_radius=8, padding=ft.padding.symmetric(horizontal=14, vertical=10),
                         border=ft.border.all(1, BORDER),
@@ -1014,7 +1155,7 @@ def main(page: ft.Page):
                             ft.Icon(ft.Icons.PERSON_OUTLINE, size=16, color=TXT3),
                             ft.Text(pw['username'], size=13, weight=ft.FontWeight.W_500, color=TXT, expand=True),
                             ft.Row(issues, spacing=4),
-                            strength_dots(pw.get("strength_score", 1.0)),
+                            strength_gauge(pw.get("strength_score", 1.0)),
                             ft.Container(
                                 content=ft.Text(ttl_txt, size=10, weight=ft.FontWeight.W_700, color=ttl_col),
                                 bgcolor=f"{ttl_col}15", border_radius=4,
@@ -1029,22 +1170,30 @@ def main(page: ft.Page):
                         ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                     ))
 
-                # Domain letter avatar
+                # Domain avatar: favicon if available, else letter circle
                 letter = dom[0].upper() if dom else "?"
+                fav_path = favicon_cache.get_favicon(dom)
+                if fav_path:
+                    domain_avatar = ft.Container(
+                        content=ft.Image(src=fav_path, width=28, height=28, fit=ft.ImageFit.CONTAIN),
+                        width=36, height=36, border_radius=18, bgcolor=CARD,
+                        alignment=ft.alignment.center)
+                else:
+                    domain_avatar = ft.CircleAvatar(
+                        content=ft.Text(letter, size=15, weight=ft.FontWeight.BOLD, color="#fff"),
+                        bgcolor=ACCENT2, radius=18)
                 border_col = f"{DANGER}60" if has_decay else BORDER
 
                 tile = ft.ExpansionTile(
                     title=ft.Row([
-                        ft.CircleAvatar(
-                            content=ft.Text(letter, size=15, weight=ft.FontWeight.BOLD, color="#fff"),
-                            bgcolor=ACCENT2, radius=18),
+                        domain_avatar,
                         ft.Column([
                             ft.Text(dom, size=14, weight=ft.FontWeight.W_600, color=TXT),
                             ft.Text(f"{len(pw_list)} account{'s' if len(pw_list)>1 else ''}",
                                     size=11, color=TXT3),
                         ], spacing=1, expand=True),
                         ft.Icon(ft.Icons.STICKY_NOTE_2, size=14, color=GOLD) if has_notes else ft.Container(width=0),
-                        strength_dots(best_score),
+                        strength_gauge(best_score),
                     ], spacing=10),
                     controls=account_controls,
                     initially_expanded=False,
@@ -1058,6 +1207,24 @@ def main(page: ft.Page):
                     ft.Container(content=tile, border=ft.border.all(1, border_col), border_radius=10))
         page.update()
 
+    dd_vault_category_filter = ft.Dropdown(
+        width=150,
+        options=[ft.dropdown.Option("All")],
+        value="All",
+        text_size=13,
+        border_color=BORDER,
+        on_change=lambda e: refresh_vault(tf_search.value)
+    )
+
+    def load_vault_categories():
+        dd_vault_category_filter.options = [ft.dropdown.Option("All")]
+        r = client.get("/api/categories")
+        if r.status_code == 200:
+            for c in r.json():
+                dd_vault_category_filter.options.append(ft.dropdown.Option(c))
+        if dd_vault_category_filter.value not in [opt.key for opt in dd_vault_category_filter.options]:
+            dd_vault_category_filter.value = "All"
+            
     vault_view = ft.Container(padding=24, expand=True, content=ft.Column([
         ft.Row([
             ft.Text("Vault", size=22, weight=ft.FontWeight.W_600, color=TXT),
@@ -1070,39 +1237,236 @@ def main(page: ft.Page):
                 on_click=lambda _: export_picker.save_file(allowed_extensions=["csv"], file_name="vault_export.csv")),
         ]),
         stats_row,
-        tf_search,
+        ft.Row([tf_search, dd_vault_category_filter]),
         vault_list,
     ], expand=True, spacing=10, scroll=ft.ScrollMode.AUTO))
 
     # ── Sidebar + Layout ──
+    # Order: Vault, Notes, Health, Generator, ML Profiling | (spacer) | Settings, Lock
     nav_icons = [
-        (ft.Icons.SHIELD_OUTLINED, ft.Icons.SHIELD, "Vault"),
-        (ft.Icons.STICKY_NOTE_2_OUTLINED, ft.Icons.STICKY_NOTE_2, "Notes"),
-        (ft.Icons.PASSWORD_OUTLINED, ft.Icons.PASSWORD, "Generator"),
-        (ft.Icons.SETTINGS_OUTLINED, ft.Icons.SETTINGS, "Settings"),
-        (ft.Icons.AUTO_AWESOME_OUTLINED, ft.Icons.AUTO_AWESOME, "ML Profiling"),
+        (ft.Icons.SHIELD_OUTLINED, ft.Icons.SHIELD, "Vault", NAV_VAULT),
+        (ft.Icons.STICKY_NOTE_2_OUTLINED, ft.Icons.STICKY_NOTE_2, "Notes", NAV_NOTES),
+        (ft.Icons.HEALTH_AND_SAFETY_OUTLINED, ft.Icons.HEALTH_AND_SAFETY, "Health", NAV_HEALTH),
+        (ft.Icons.PASSWORD_OUTLINED, ft.Icons.PASSWORD, "Generator", NAV_GENERATOR),
+        (ft.Icons.AUTO_AWESOME_OUTLINED, ft.Icons.AUTO_AWESOME, "ML Profiling", NAV_ML),
     ]
+    # Settings is separate — placed at bottom
+    settings_icon = (ft.Icons.SETTINGS_OUTLINED, ft.Icons.SETTINGS, "Settings", NAV_SETTINGS)
+
     nav_btns = []
-    for i, (icon_off, icon_on, tip) in enumerate(nav_icons):
+    for i, (icon_off, icon_on, tip, color) in enumerate(nav_icons):
         nav_btns.append(ft.Container(
-            content=ft.Icon(icon_on if i == 0 else icon_off, color=ACCENT if i == 0 else TXT3, size=22),
+            content=ft.Icon(icon_on if i == 0 else icon_off, color=color, size=22),
             width=44, height=44, border_radius=12,
-            bgcolor=f"{ACCENT}18" if i == 0 else "transparent",
+            bgcolor=f"{color}18" if i == 0 else "transparent",
             alignment=ft.alignment.center, tooltip=tip, ink=True,
             on_click=lambda e, idx=i: switch_tab(idx)))
 
+    settings_btn = ft.Container(
+        content=ft.Icon(settings_icon[0], color=NAV_SETTINGS, size=22),
+        width=44, height=44, border_radius=12,
+        bgcolor="transparent",
+        alignment=ft.alignment.center, tooltip="Settings", ink=True,
+        on_click=lambda e: switch_tab(5))
+
+    # Health dashboard placeholder — will be built on demand
+    health_view = ft.Container(expand=True)
+
+    def build_health_dashboard():
+        """Build the password health dashboard view."""
+        health_view.content = ft.Column([
+            ft.Text("Loading health data...", color=TXT3)
+        ], expand=True)
+        page.update()
+
+        resp = client.get("/api/passwords")
+        if resp.status_code != 200:
+            health_view.content = ft.Column([
+                ft.Text("Failed to load passwords.", color=DANGER)
+            ], expand=True)
+            page.update()
+            return
+
+        passwords = resp.json()
+        total = len(passwords)
+        if total == 0:
+            health_view.content = ft.Container(
+                padding=24, expand=True,
+                content=ft.Column([
+                    ft.Text("Vault Health", size=22, weight=ft.FontWeight.W_600, color=TXT),
+                    ft.Container(expand=True),
+                    ft.Column([
+                        ft.Icon(ft.Icons.VERIFIED_USER, size=64, color=ACCENT),
+                        ft.Text("Your vault is empty", size=18, weight=ft.FontWeight.W_600, color=TXT),
+                        ft.Text("Add some passwords to see health analytics.", size=13, color=TXT3),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+                    ft.Container(expand=True),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, expand=True))
+            page.update()
+            return
+
+        # Calculate metrics
+        now = datetime.datetime.now()
+        weak = [p for p in passwords if p.get("strength_score", 1.0) < 0.5]
+        pw_counts = {}
+        for p in passwords:
+            pw_counts[p["password"]] = pw_counts.get(p["password"], 0) + 1
+        reused_groups = {}
+        for p in passwords:
+            if pw_counts.get(p["password"], 0) > 1:
+                key = p["password"]
+                if key not in reused_groups:
+                    reused_groups[key] = []
+                reused_groups[key].append(p)
+
+        expiring = []
+        for p in passwords:
+            ca = datetime.datetime.fromisoformat(p['created_at'])
+            ttl = p.get('ttl_days', 90)
+            remaining = ttl - (now - ca).days
+            if 0 < remaining <= 14:
+                expiring.append((p, remaining))
+        expiring.sort(key=lambda x: x[1])
+
+        expired = []
+        for p in passwords:
+            ca = datetime.datetime.fromisoformat(p['created_at'])
+            ttl = p.get('ttl_days', 90)
+            if (now - ca).days > ttl:
+                expired.append(p)
+
+        avg_score = sum(p.get("strength_score", 0.5) for p in passwords) / total
+        weak.sort(key=lambda p: p.get("strength_score", 0))
+
+        # Build sections
+        sections = []
+
+        # Overall score gauge (large)
+        score_color = DANGER if avg_score < 0.4 else (WARN if avg_score < 0.7 else ACCENT)
+        score_label = "Poor" if avg_score < 0.4 else ("Fair" if avg_score < 0.7 else "Strong")
+        sections.append(ft.Container(
+            bgcolor=CARD, border_radius=14, border=ft.border.all(1, BORDER), padding=20,
+            content=ft.Row([
+                strength_gauge(avg_score, size=80),
+                ft.Column([
+                    ft.Text("Overall Vault Health", size=16, weight=ft.FontWeight.W_600, color=TXT),
+                    ft.Text(f"{score_label} — {int(avg_score * 100)}% average strength", size=13, color=TXT2),
+                    ft.Row([
+                        pill(f"{total} Total", ACCENT),
+                        pill(f"{len(weak)} Weak", DANGER) if weak else ft.Container(),
+                        pill(f"{len(reused_groups)} Reused", WARN) if reused_groups else ft.Container(),
+                        pill(f"{len(expired)} Expired", DANGER) if expired else ft.Container(),
+                    ], spacing=6, wrap=True),
+                ], spacing=4, expand=True),
+            ], spacing=16, vertical_alignment=ft.CrossAxisAlignment.CENTER)))
+
+        # Reused passwords section
+        if reused_groups:
+            reused_cards = []
+            for pw_text, group in reused_groups.items():
+                domains = ", ".join(p['domain'] for p in group)
+                reused_cards.append(ft.Container(
+                    bgcolor=SURFACE, border_radius=8, padding=12,
+                    border=ft.border.all(1, f"{WARN}30"),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.COPY_ALL, color=WARN, size=18),
+                        ft.Column([
+                            ft.Text(f"{len(group)} accounts share this password", size=13,
+                                    weight=ft.FontWeight.W_600, color=TXT),
+                            ft.Text(domains, size=11, color=TXT3),
+                        ], spacing=2, expand=True),
+                    ], spacing=10)))
+            sections.append(ft.Container(
+                bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=16,
+                content=ft.Column([
+                    ft.Text("REUSED PASSWORDS", size=11, weight=ft.FontWeight.W_700, color=WARN),
+                    *reused_cards
+                ], spacing=8)))
+
+        # Weak passwords section
+        if weak:
+            weak_cards = []
+            for p in weak[:10]:
+                weak_cards.append(ft.Container(
+                    bgcolor=SURFACE, border_radius=8, padding=12,
+                    border=ft.border.all(1, f"{DANGER}30"),
+                    content=ft.Row([
+                        strength_gauge(p.get("strength_score", 0), size=36),
+                        ft.Column([
+                            ft.Text(p['domain'], size=13, weight=ft.FontWeight.W_600, color=TXT),
+                            ft.Text(p['username'], size=11, color=TXT3),
+                        ], spacing=2, expand=True),
+                        ft.TextButton("Edit", on_click=lambda e, pw=p: (switch_tab(0), show_edit_dialog(pw))),
+                    ], spacing=10)))
+            sections.append(ft.Container(
+                bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=16,
+                content=ft.Column([
+                    ft.Text(f"WEAK PASSWORDS ({len(weak)})", size=11, weight=ft.FontWeight.W_700, color=DANGER),
+                    *weak_cards
+                ], spacing=8)))
+
+        # Expiring soon
+        if expiring:
+            exp_cards = []
+            for p, rem in expiring[:8]:
+                exp_cards.append(ft.Container(
+                    bgcolor=SURFACE, border_radius=8, padding=12,
+                    border=ft.border.all(1, f"{WARN}30"),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.TIMER, color=WARN, size=18),
+                        ft.Column([
+                            ft.Text(p['domain'], size=13, weight=ft.FontWeight.W_600, color=TXT),
+                            ft.Text(p['username'], size=11, color=TXT3),
+                        ], spacing=2, expand=True),
+                        pill(f"{rem}d left", WARN),
+                    ], spacing=10)))
+            sections.append(ft.Container(
+                bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=16,
+                content=ft.Column([
+                    ft.Text(f"EXPIRING SOON ({len(expiring)})", size=11, weight=ft.FontWeight.W_700, color=WARN),
+                    *exp_cards
+                ], spacing=8)))
+
+        # All healthy message
+        if not weak and not reused_groups and not expiring and not expired:
+            sections.append(ft.Container(
+                bgcolor=CARD, border_radius=12, border=ft.border.all(1, f"{ACCENT}30"), padding=24,
+                content=ft.Column([
+                    ft.Icon(ft.Icons.VERIFIED_USER, size=48, color=ACCENT),
+                    ft.Text("Excellent! Your vault is healthy.", size=16, weight=ft.FontWeight.W_600, color=ACCENT),
+                    ft.Text("No weak, reused, or expiring passwords found.", size=13, color=TXT2),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8)))
+
+        health_view.content = ft.Container(padding=24, expand=True, content=ft.Column([
+            ft.Text("Vault Health", size=22, weight=ft.FontWeight.W_600, color=TXT),
+            ft.Container(height=4),
+            *sections,
+        ], expand=True, spacing=12, scroll=ft.ScrollMode.AUTO))
+        page.update()
+
     def switch_tab(idx):
         selected_nav[0] = idx
+        # Update main nav buttons (0-4)
         for j, btn in enumerate(nav_btns):
             active = j == idx
-            btn.bgcolor = f"{ACCENT}18" if active else "transparent"
+            icon_color = nav_icons[j][3]
+            btn.bgcolor = f"{icon_color}18" if active else "transparent"
             btn.content.name = nav_icons[j][1] if active else nav_icons[j][0]
-            btn.content.color = ACCENT if active else TXT3
-        views = [vault_view, notes_view, generator_view, settings_view, ml_profiling_view]
-        main_content.content = views[idx]
-        if idx == 0: refresh_vault()
+            btn.content.color = icon_color # Keep color regardless of active state
+        # Update settings button (idx 5)
+        settings_active = idx == 5
+        settings_btn.bgcolor = f"{NAV_SETTINGS}18" if settings_active else "transparent"
+        settings_btn.content.name = settings_icon[1] if settings_active else settings_icon[0]
+        settings_btn.content.color = NAV_SETTINGS
+
+        views = [vault_view, notes_view, health_view, generator_view, ml_profiling_view, settings_view]
+        content_switcher.content = views[idx]
+        if idx == 0: 
+            load_vault_categories()
+            refresh_vault()
         elif idx == 1: refresh_notes()
-        elif idx in [3, 4]: load_settings()
+        elif idx == 2: build_health_dashboard()
+        elif idx in [4, 5]: load_settings()
         page.update()
 
     def on_lock(e):
@@ -1124,14 +1488,19 @@ def main(page: ft.Page):
                 margin=ft.margin.only(bottom=24)),
             *nav_btns,
             ft.Container(expand=True),
+            settings_btn,
             ft.Container(
                 content=ft.IconButton(ft.Icons.LOCK_OUTLINE, icon_color=DANGER, icon_size=20,
                     on_click=on_lock, tooltip="Lock Vault"),
                 margin=ft.margin.only(bottom=4)),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4))
 
-    main_content = ft.Container(content=vault_view, expand=True)
-    app_layout = ft.Row([sidebar, main_content], expand=True, spacing=0)
+    content_switcher = ft.AnimatedSwitcher(
+        content=vault_view, expand=True,
+        transition=ft.AnimatedSwitcherTransition.FADE,
+        duration=ANIM_NORMAL, switch_in_curve=ft.AnimationCurve.EASE_IN,
+        switch_out_curve=ft.AnimationCurve.EASE_OUT)
+    app_layout = ft.Row([sidebar, content_switcher], expand=True, spacing=0)
 
     def show_main_app():
         page.clean()
@@ -1144,6 +1513,10 @@ def main(page: ft.Page):
         page.clean()
         page.appbar = None
         status = client.get("/api/status").json()
+        
+        # Reset tagline for animation
+        tagline_text.value = ""
+        
         if status["is_setup"]:
             tf_setup_name.visible = False
             btn_setup.visible = False
@@ -1154,6 +1527,8 @@ def main(page: ft.Page):
             btn_login.visible = False
         page.add(auth_container)
         page.update()
+        
+        threading.Thread(target=type_tagline, daemon=True).start()
 
     # --- Hotkey Integration Logic ---
     _popup_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "popup.py")
@@ -1194,6 +1569,39 @@ def main(page: ft.Page):
         if page.appbar:
             refresh_vault(tf_search.value)
     backend.ON_DB_UPDATE.append(on_db_change)
+
+    def auto_lock_monitor():
+        import ctypes
+        
+        class LASTINPUTINFO(ctypes.Structure):
+            _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_ulong)]
+            
+        while True:
+            time.sleep(15)
+            # Skip check if vault is already locked
+            if not current_master_password:
+                continue
+            
+            try:
+                # get auto_lock preferences
+                settings_cache = client.get("/api/settings").json()
+                if not settings_cache.get("auto_lock_enabled", True):
+                    continue
+                
+                minutes = settings_cache.get("auto_lock_minutes", 15)
+                
+                lastInputInfo = LASTINPUTINFO()
+                lastInputInfo.cbSize = ctypes.sizeof(lastInputInfo)
+                ctypes.windll.user32.GetLastInputInfo(ctypes.byref(lastInputInfo))
+                millis_idle = ctypes.windll.kernel32.GetTickCount() - lastInputInfo.dwTime
+                
+                if (millis_idle / 1000.0) > (minutes * 60):
+                    # trigger lock
+                    on_lock(None)
+            except Exception:
+                pass
+
+    threading.Thread(target=auto_lock_monitor, daemon=True).start()
 
     # Initial launch
     show_auth_screen()

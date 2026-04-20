@@ -1,17 +1,22 @@
-# LocalPass 🔐
-*Because I cant remember my passwords*
+# Valtr 🔐
+*Because I can't remember my passwords*
 
-LocalPass is a strictly local-first, ML-powered desktop password manager. Built with Python and Flet, it completely ditches the need for clunky browser extensions by relying on a sleek global hotkey overlay and OS-level window injection. 
+Valtr is a strictly local-first, ML-powered desktop password manager. Built with Python and Flet, it completely ditches the need for clunky browser extensions by relying on a sleek global hotkey overlay and OS-level window injection. 
 
 Your vault never touches the cloud. It's just you, AES-256-GCM encryption, and some unreasonably smart heuristics.
 
 ## ✨ Features
-- 🧠 **ML-Driven Security**: Analyzes password strength and decay (age) locally to make sure you aren't using "password123" for the 5th year in a row.
-- ⚡ **Native Hotkey Overlay**: Press `Ctrl+Shift+L` globally from anywhere. It instantly pops up a minimal UI, reads your active window title to find the domain, and intelligently filters your vault. You can change the hotkey if you want. 
+- 🧠 **ML-Driven Security**: A Structural Hidden Markov Model (HMM) with PageRank-style damping learns your password *rhythm* and generates new passwords that feel personal — without regurgitating existing ones. Password strength scoring uses a 100k-entry RockYou-derived breach dictionary and personal info negative matching.
+- ⚡ **Native Hotkey Overlay**: Press `Ctrl+Shift+L` globally from anywhere. It instantly pops up a minimal UI, reads your active window title to find the domain, and intelligently filters your vault. The hotkey is fully customizable.
 - 🥷 **Ghost-Mode Keylogging**: No extension? No problem. The app runs a highly-local ephemeral sliding-window key buffer. If you literally just typed out a new login on some website, hitting the hotkey instantly parses the buffer and pre-fills the "Add Account" menu for you. 
 - 🎯 **Smart Autofill**: Uses `pywinauto` to inject your credentials directly back into whatever app/browser window you were using. 
 - 🔄 **Real-time Sync**: The main Flet UI is connected directly to the FastAPI backend events, so the visual grid updates in real-time the second you modify anything from the popup.
-- 🔒 **Zero Trust Local Crypto**: Secured with PBKDF2 (480k iterations) and AES-256-GCM. Your key lives cleanly in memory and dies the second you close the app. 
+- 🔒 **Zero Trust Local Crypto**: Secured with PBKDF2 (480k iterations) and AES-256-GCM. Your key lives cleanly in memory and dies the second you close the app.
+- 📝 **Secure Notes**: Encrypted notes with tagging, visibility toggle, and association to passwords.
+- 🏥 **Vault Health Dashboard**: At-a-glance audit of reused, weak, and expiring passwords with an overall vault health score.
+- 🔁 **Password History**: Full encrypted history of previous passwords for every credential.
+- 📂 **Categories**: Organize passwords into categories (Work, Personal, Finance, etc.) with custom category support.
+- ⏰ **Auto-Lock**: Configurable inactivity timer that automatically locks your vault.
 
 ## 🚀 How to run this thing
 First off, clone the repo and get your environment sorted:
@@ -21,17 +26,18 @@ cd Password-Manager-ML
 pip install -r desktop/requirements.txt
 ```
 
-Launch the mothership:
+Launch the app:
 ```bash
 python desktop/ui.py
 ```
-*Pro tip: The first time you launch it, it’ll ask you to set up a master password. Don't forget it, because there is literally zero password recovery. If you lose it, your vault is cooked.*
+*Pro tip: The first time you launch it, it'll ask you to set up a master password. Don't forget it, because there is literally zero password recovery. If you lose it, your vault is cooked.*
 
 ## 🛠️ Stack
 - **Frontend**: Flet (Flutter for Python)
-- **Backend**: FastAPI + SQLite (Async and snappy)
+- **Backend**: FastAPI + SQLite
+- **ML Engine**: Custom Structural HMM with PageRank-style 80/20 damping
 - **Injection & Hooks**: `pywinauto` and `keyboard`
-- **Crypto**: `cryptography` package
+- **Crypto**: `cryptography` package (PBKDF2 + AES-256-GCM)
 
 ---
 ### To-Do / Contributing
