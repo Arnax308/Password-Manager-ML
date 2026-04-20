@@ -292,7 +292,7 @@ def main(page: ft.Page):
             tf_master_password,
             ft.Container(height=8),
             btn_login, btn_setup, lbl_auth_error,
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, tight=True, spacing=8),
     )
 
     auth_container = ft.Container(
@@ -465,8 +465,8 @@ def main(page: ft.Page):
     tf_edit_password = ft.TextField(label="Password", password=True, can_reveal_password=True)
     
     # Category UI
-    dd_edit_category = ft.Dropdown(label="Category", width=200, options=[])
-    tf_new_category = ft.TextField(label="New Category Name", width=200, visible=False)
+    dd_edit_category = ft.Dropdown(label="Category", options=[])
+    tf_new_category = ft.TextField(label="New Category Name", visible=False)
     
     def on_category_change(e):
         if dd_edit_category.value == "__NEW__":
@@ -545,7 +545,7 @@ def main(page: ft.Page):
         title=ft.Text("Edit Credentials"),
         content=ft.Column([
             tf_edit_domain, tf_edit_username, tf_edit_password,
-            ft.Row([dd_edit_category, tf_new_category]),
+            ft.Column([dd_edit_category, tf_new_category], spacing=4),
             ft.Row([btn_create_associated, btn_view_note])
         ], tight=True),
         actions=[
@@ -1497,7 +1497,7 @@ def main(page: ft.Page):
 
     content_switcher = ft.AnimatedSwitcher(
         content=vault_view, expand=True,
-        transition=ft.AnimatedSwitcherTransition.FADE,
+        transition=ft.AnimatedSwitcherTransition.SCALE,
         duration=ANIM_NORMAL, switch_in_curve=ft.AnimationCurve.EASE_IN,
         switch_out_curve=ft.AnimationCurve.EASE_OUT)
     app_layout = ft.Row([sidebar, content_switcher], expand=True, spacing=0)
