@@ -21,5 +21,8 @@ venv.bak/
 
 test_vault.db
 
+# Test files
+test_backend.py
+
 # Logs
 valtr_startup.log

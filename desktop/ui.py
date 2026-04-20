@@ -100,7 +100,7 @@ def run_api():
             continue
         try:
             logging.info("Starting uvicorn on 127.0.0.1:5000 (attempt %d)", attempt)
-            uvicorn.run(backend.app, host="127.0.0.1", port=5000, log_level="error")
+            uvicorn.run(backend.app, host="127.0.0.1", port=5000, log_level="error", log_config=None)
             return  # normal shutdown
         except Exception as exc:
             logging.error("uvicorn crashed on attempt %d: %s", attempt, exc)
