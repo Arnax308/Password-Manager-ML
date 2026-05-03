@@ -364,36 +364,107 @@ def main(page: ft.Page):
     tf_auto_lock_minutes = ft.TextField(label="Auto-Lock Minutes", value="15", width=150)
     sw_fetch_favicons = ft.Switch(label="Fetch Website Favicons", value=False)
 
-    category_mgmt_list = ft.Column(spacing=4)
+    category_mgmt_list = ft.Column(spacing=6)
     
-    tf_cat_rename = ft.TextField(label="New Category Name")
+    tf_cat_rename = ft.TextField(
+        label="New Name", border_radius=8, border_color=BORDER,
+        focused_border_color=ACCENT, text_size=14,
+    )
     current_rename_cat = [None]
     current_delete_cat = [None]
     
     cat_rename_dialog = ft.AlertDialog(
-        title=ft.Text("Rename Category"),
-        content=tf_cat_rename,
+        modal=True,
+        title=ft.Row([
+            ft.Icon(ft.Icons.EDIT, color=GOLD, size=20),
+            ft.Text("Rename Category", weight=ft.FontWeight.W_600),
+        ], spacing=8),
+        content=ft.Container(width=340, content=ft.Column([
+            ft.Text("Enter a new name for this category.", size=12, color=TXT3),
+            tf_cat_rename,
+        ], spacing=10, tight=True)),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(cat_rename_dialog, 'open', False) or page.update()),
-            ft.ElevatedButton("Rename", on_click=lambda e: _submit_cat_rename())
+            ft.ElevatedButton("Rename", bgcolor=ACCENT, color="#ffffff",
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: _submit_cat_rename())
         ]
     )
     
     cat_delete_dialog = ft.AlertDialog(
-        title=ft.Text("Delete Category"),
-        content=ft.Text("Are you sure you want to delete this custom category? Passwords currently mapped to it will simply be uncategorized."),
+        modal=True,
+        title=ft.Row([
+            ft.Icon(ft.Icons.WARNING_AMBER, color=DANGER, size=20),
+            ft.Text("Delete Category", weight=ft.FontWeight.W_600, color=DANGER),
+        ], spacing=8),
+        content=ft.Container(width=340, content=ft.Column([
+            ft.Text("Are you sure you want to delete this category?", size=13, color=TXT),
+            ft.Container(
+                bgcolor=f"{DANGER}12", border_radius=8, padding=12,
+                border=ft.border.all(1, f"{DANGER}30"),
+                content=ft.Text("Passwords currently in this category will become uncategorized.", size=12, color=TXT2),
+            ),
+        ], spacing=10, tight=True)),
         actions=[
             ft.TextButton("Cancel", on_click=lambda e: setattr(cat_delete_dialog, 'open', False) or page.update()),
-            ft.ElevatedButton("Delete", color=DANGER, on_click=lambda e: _submit_cat_delete())
+            ft.ElevatedButton("Delete", bgcolor=DANGER, color="#ffffff",
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=lambda e: _submit_cat_delete())
         ]
     )
+
+    # New Category dialog — used from both settings and password edit dialog
+    tf_new_cat_name = ft.TextField(
+        label="Category Name", border_radius=8, border_color=BORDER,
+        focused_border_color=ACCENT, text_size=14,
+    )
+    _new_cat_callback = [None]  # optional callback after creation
+    
+    def _submit_new_cat(e=None):
+        name = tf_new_cat_name.value.strip()
+        if not name:
+            show_error("Category name cannot be empty.")
+            return
+        r = client.post("/api/categories", json={"name": name})
+        if r.status_code == 200:
+            new_cat_dialog.open = False
+            show_success(f"Created category: {name}")
+            if _new_cat_callback[0]:
+                _new_cat_callback[0](name)
+                _new_cat_callback[0] = None
+            load_settings()
+        else:
+            show_error("Failed to create category.")
+
+    tf_new_cat_name.on_submit = _submit_new_cat
+
+    new_cat_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Row([
+            ft.Icon(ft.Icons.ADD_CIRCLE, color=ACCENT, size=20),
+            ft.Text("New Category", weight=ft.FontWeight.W_600),
+        ], spacing=8),
+        content=ft.Container(width=340, content=ft.Column([
+            ft.Text("Create a custom category to organize your passwords.", size=12, color=TXT3),
+            tf_new_cat_name,
+        ], spacing=10, tight=True)),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: setattr(new_cat_dialog, 'open', False) or page.update()),
+            ft.ElevatedButton("Create", bgcolor=ACCENT, color="#ffffff",
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=_submit_new_cat)
+        ]
+    )
+
+    # Register all category dialogs in the overlay
+    page.overlay.extend([cat_rename_dialog, cat_delete_dialog, new_cat_dialog])
     
     def _submit_cat_rename():
         old_name = current_rename_cat[0]
         new_name = tf_cat_rename.value.strip()
         if new_name and old_name:
             client.put(f"/api/categories/{old_name}", json={"new_name": new_name})
-            show_success(f"Renamed category to {new_name}")
+            show_success(f"Renamed \"{old_name}\" → \"{new_name}\"")
             cat_rename_dialog.open = False
             page.update()
             load_settings()
@@ -409,14 +480,53 @@ def main(page: ft.Page):
             load_settings()
             refresh_vault()
 
-    def build_cat_row(c):
-        return ft.Container(padding=12, bgcolor=SURFACE, border_radius=8, border=ft.border.all(1, BORDER), content=ft.Row([
+    def build_cat_row(c, is_preset=False):
+        """Build a category row. Presets get a lock icon; custom ones get edit+delete."""
+        from ui_theme import CATEGORY_COLORS, CATEGORY_DEFAULT_COLOR
+        cat_color = CATEGORY_COLORS.get(c, CATEGORY_DEFAULT_COLOR)
+        
+        row_controls = [
+            ft.Container(width=10, height=10, border_radius=5, bgcolor=cat_color),
             ft.Text(c, expand=True, size=13, weight=ft.FontWeight.W_600, color=TXT),
-            ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=15, icon_color=TXT3, tooltip="Rename",
-                on_click=lambda e: (current_rename_cat.__setitem__(0, c), setattr(tf_cat_rename, 'value', c), setattr(cat_rename_dialog, 'open', True), page.update())),
-            ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=15, icon_color=DANGER, tooltip="Delete",
-                on_click=lambda e: (current_delete_cat.__setitem__(0, c), setattr(cat_delete_dialog, 'open', True), page.update()))
-        ]))
+        ]
+        
+        if is_preset:
+            row_controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.LOCK_OUTLINE, size=12, color=TXT3),
+                        ft.Text("Preset", size=10, color=TXT3),
+                    ], spacing=4),
+                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    border_radius=6, bgcolor=f"{TXT3}12",
+                )
+            )
+        else:
+            row_controls.extend([
+                ft.IconButton(
+                    ft.Icons.EDIT_OUTLINED, icon_size=16, icon_color=TXT3, tooltip="Rename",
+                    on_click=lambda e, _c=c: (
+                        current_rename_cat.__setitem__(0, _c),
+                        setattr(tf_cat_rename, 'value', _c),
+                        setattr(cat_rename_dialog, 'open', True),
+                        page.update(),
+                    )),
+                ft.IconButton(
+                    ft.Icons.DELETE_OUTLINE, icon_size=16, icon_color=DANGER, tooltip="Delete",
+                    on_click=lambda e, _c=c: (
+                        current_delete_cat.__setitem__(0, _c),
+                        setattr(cat_delete_dialog, 'open', True),
+                        page.update(),
+                    )),
+            ])
+        
+        return ft.Container(
+            padding=ft.padding.symmetric(horizontal=14, vertical=10),
+            bgcolor=SURFACE, border_radius=8,
+            border=ft.border.all(1, BORDER),
+            content=ft.Row(row_controls, spacing=10,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        )
 
     def load_settings():
         resp = client.get("/api/settings")
@@ -433,17 +543,18 @@ def main(page: ft.Page):
             tf_auto_lock_minutes.value = str(data.get("auto_lock_minutes", 15))
             sw_fetch_favicons.value = data.get("fetch_favicons", False)
             
-            # Load custom categories
+            # Load ALL categories (presets + custom)
             category_mgmt_list.controls.clear()
             r_cat = client.get("/api/categories")
             if r_cat.status_code == 200:
                 presets = ["Work", "Personal", "Finance", "Social", "Entertainment", "Other"]
                 cats = r_cat.json()
-                customs = [c for c in cats if c not in presets]
-                if not customs:
-                    category_mgmt_list.controls.append(ft.Text("No custom categories created yet.", size=12, color=TXT3, italic=True))
-                for c in customs:
-                    category_mgmt_list.controls.append(build_cat_row(c))
+                for c in cats:
+                    is_preset = c in presets
+                    category_mgmt_list.controls.append(build_cat_row(c, is_preset=is_preset))
+                if not cats:
+                    category_mgmt_list.controls.append(
+                        ft.Text("No categories found.", size=12, color=TXT3, italic=True))
             
             page.update()
             
@@ -533,15 +644,20 @@ def main(page: ft.Page):
     
     # Category UI
     dd_edit_category = ft.Dropdown(label="Category", options=[])
-    tf_new_category = ft.TextField(label="New Category Name", visible=False)
+    tf_new_category = ft.TextField(label="New Category Name", visible=False)  # kept for layout reference
     
     def on_category_change(e):
         if dd_edit_category.value == "__NEW__":
-            tf_new_category.visible = True
-        else:
-            tf_new_category.visible = False
-            tf_new_category.value = ""
-        page.update()
+            dd_edit_category.value = None  # reset selection
+            page.update()
+            # Open the new category dialog, and on success set the dropdown
+            def _on_created(name):
+                load_categories_for_dropdown(name)
+                page.update()
+            _new_cat_callback[0] = _on_created
+            tf_new_cat_name.value = ""
+            new_cat_dialog.open = True
+            page.update()
         
     dd_edit_category.on_change = on_category_change
 
@@ -554,10 +670,13 @@ def main(page: ft.Page):
         creating_note_for_dropdown[0] = True
         edit_dialog.open = False
         tf_note_title.value = f"Note for {tf_edit_domain.value or 'New Account'}"
-        tf_note_tags.value = f"{tf_edit_domain.value or 'account'}, associated"
+        note_tags_list.clear()
+        note_tags_list.extend([tf_edit_domain.value or 'account', 'associated'])
+        tf_add_tag.value = ""
         tf_note_content.value = ""
         cb_hide_content.value = True
         current_note_id[0] = None
+        _rebuild_tag_chips()
         edit_note_dialog.title.value = "Create Associated Note"
         edit_note_dialog.open = True
         page.update()
@@ -582,18 +701,7 @@ def main(page: ft.Page):
         
         # Resolve category
         cat_val = dd_edit_category.value
-        if cat_val == "__NEW__":
-            cat_name = tf_new_category.value.strip()
-            if not cat_name:
-                show_error("Please enter a custom category name.")
-                return
-            # Create category first
-            r = client.post("/api/categories", json={"name": cat_name})
-            if r.status_code == 200:
-                cat_val = r.json()
-            else:
-                show_error("Failed to create custom category.")
-                return
+        # __NEW__ is handled by the dialog now, so no inline creation needed
                 
         data = {"domain": tf_edit_domain.value, "username": tf_edit_username.value, "password": tf_edit_password.value, "note_id": note_val, "category": cat_val}
         if current_edit_id[0] is None:
@@ -612,7 +720,7 @@ def main(page: ft.Page):
         title=ft.Text("Edit Credentials"),
         content=ft.Column([
             tf_edit_domain, tf_edit_username, tf_edit_password,
-            ft.Column([dd_edit_category, tf_new_category], spacing=4),
+            dd_edit_category,
             ft.Row([btn_create_associated, btn_view_note])
         ], tight=True),
         actions=[
@@ -776,13 +884,107 @@ def main(page: ft.Page):
     )
     
     tf_note_title = ft.TextField(label="Note Title")
-    tf_note_tags = ft.TextField(label="Tags (comma separated)", width=400)
+    # ── Interactive Tag Chip System ──
+    note_tags_list = []  # mutable list holding current tags
+    note_tags_row = ft.Row(spacing=6, wrap=True)  # visual row of chips
+    tf_add_tag = ft.TextField(
+        label="Add tag", width=200, border_radius=8, border_color=BORDER,
+        focused_border_color=ACCENT, text_size=13, height=40,
+        content_padding=ft.padding.symmetric(horizontal=10, vertical=4),
+    )
+    # Kept for backward compat in associated note creation flows
+    tf_note_tags = tf_add_tag  # alias so callers setting .value still work
+
+    def _rebuild_tag_chips():
+        """Rebuild the visual tag chips from note_tags_list."""
+        note_tags_row.controls.clear()
+        for idx, tag in enumerate(note_tags_list):
+            _idx = idx  # capture
+            chip = ft.Container(
+                bgcolor=f"{ACCENT}22", border_radius=16,
+                border=ft.border.all(1, f"{ACCENT}40"),
+                padding=ft.padding.only(left=10, right=4, top=2, bottom=2),
+                content=ft.Row([
+                    ft.Text(tag, size=12, weight=ft.FontWeight.W_600, color=ACCENT),
+                    ft.IconButton(
+                        ft.Icons.EDIT, icon_size=13, icon_color=TXT3,
+                        width=24, height=24, tooltip="Edit tag",
+                        on_click=lambda e, i=_idx: _start_edit_tag(i)),
+                    ft.IconButton(
+                        ft.Icons.CLOSE, icon_size=13, icon_color=DANGER,
+                        width=24, height=24, tooltip="Remove tag",
+                        on_click=lambda e, i=_idx: _remove_tag(i)),
+                ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            )
+            note_tags_row.controls.append(chip)
+        page.update()
+
+    def _add_tag_from_field(e):
+        raw = tf_add_tag.value.strip() if tf_add_tag.value else ""
+        if not raw:
+            return
+        # Support comma-separated batch add
+        new_tags = [t.strip() for t in raw.split(",") if t.strip()]
+        for t in new_tags:
+            if t not in note_tags_list:
+                note_tags_list.append(t)
+        tf_add_tag.value = ""
+        _rebuild_tag_chips()
+
+    tf_add_tag.on_submit = _add_tag_from_field
+    btn_add_tag = ft.IconButton(
+        ft.Icons.ADD_CIRCLE_OUTLINE, icon_color=ACCENT, icon_size=20,
+        tooltip="Add tag", on_click=_add_tag_from_field)
+
+    # Inline tag editing
+    _editing_tag_idx = [None]
+    _tf_edit_tag = ft.TextField(
+        label="Rename tag", width=180, border_radius=8, text_size=13, height=38,
+        content_padding=ft.padding.symmetric(horizontal=10, vertical=4),
+        border_color=GOLD, focused_border_color=GOLD,
+    )
+    _tag_edit_dialog = ft.AlertDialog(
+        title=ft.Text("Edit Tag", size=16),
+        content=_tf_edit_tag,
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda e: setattr(_tag_edit_dialog, 'open', False) or page.update()),
+            ft.ElevatedButton("Save", on_click=lambda e: _finish_edit_tag()),
+        ]
+    )
+    page.overlay.append(_tag_edit_dialog)
+
+    def _start_edit_tag(idx):
+        _editing_tag_idx[0] = idx
+        _tf_edit_tag.value = note_tags_list[idx]
+        _tag_edit_dialog.open = True
+        page.update()
+
+    def _finish_edit_tag():
+        idx = _editing_tag_idx[0]
+        new_val = _tf_edit_tag.value.strip()
+        if idx is not None and new_val:
+            note_tags_list[idx] = new_val
+        _tag_edit_dialog.open = False
+        _rebuild_tag_chips()
+
+    def _remove_tag(idx):
+        if 0 <= idx < len(note_tags_list):
+            note_tags_list.pop(idx)
+        _rebuild_tag_chips()
+
     cb_hide_content = ft.Checkbox(label="Hide Note Content in Dashboard", value=True)
     tf_note_content = ft.TextField(label="Secure Content", multiline=True, width=400, height=160)
     current_note_id = [None]
     
     def on_note_save(e):
-        tags_list = [t.strip() for t in tf_note_tags.value.split(",") if t.strip()]
+        # Collect any leftover text in the add-tag field
+        leftover = tf_add_tag.value.strip() if tf_add_tag.value else ""
+        if leftover:
+            for t in [x.strip() for x in leftover.split(",") if x.strip()]:
+                if t not in note_tags_list:
+                    note_tags_list.append(t)
+            tf_add_tag.value = ""
+        tags_list = list(note_tags_list)
         data = {"title": tf_note_title.value, "content": tf_note_content.value, "tags": tags_list, "is_hidden": cb_hide_content.value}
         if current_note_id[0] is None:
             resp = client.post("/api/notes", json=data)
@@ -841,7 +1043,14 @@ def main(page: ft.Page):
             
     edit_note_dialog = ft.AlertDialog(
         title=ft.Text("Secure Note"),
-        content=ft.Column([tf_note_title, tf_note_tags, cb_hide_content, tf_note_content], tight=True),
+        content=ft.Column([
+            tf_note_title,
+            ft.Text("TAGS", size=11, weight=ft.FontWeight.W_700, color=TXT3),
+            note_tags_row,
+            ft.Row([tf_add_tag, btn_add_tag], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            cb_hide_content,
+            tf_note_content,
+        ], tight=True, spacing=8, width=420),
         actions=[
             ft.TextButton("Cancel", on_click=on_edit_note_cancel),
             ft.ElevatedButton("Save", on_click=on_note_save)
@@ -849,20 +1058,22 @@ def main(page: ft.Page):
     )
 
     def show_edit_note(n=None):
+        note_tags_list.clear()
+        tf_add_tag.value = ""
         if n:
             tf_note_title.value = n['title']
-            tf_note_tags.value = ", ".join(n.get('tags', []))
+            note_tags_list.extend(n.get('tags', []))
             tf_note_content.value = n['content']
             cb_hide_content.value = n.get('is_hidden', True)
             current_note_id[0] = n['id']
             edit_note_dialog.title.value = "Edit Secure Note"
         else:
             tf_note_title.value = ""
-            tf_note_tags.value = ""
             tf_note_content.value = ""
             cb_hide_content.value = True
             current_note_id[0] = None
             edit_note_dialog.title.value = "New Secure Note"
+        _rebuild_tag_chips()
         edit_note_dialog.open = True
         page.update()
 
@@ -975,10 +1186,26 @@ def main(page: ft.Page):
             style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8), bgcolor=ACCENT)),
         ft.Container(height=20),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, BORDER), padding=20, content=ft.Column([
-            ft.Text("CATEGORY MANAGEMENT", size=11, weight=ft.FontWeight.W_700, color=TXT3),
-            ft.Text("Manage your custom categories created inside your vault.", size=11, color=TXT3, italic=True),
-            category_mgmt_list
-        ], spacing=10)),
+            ft.Row([
+                ft.Column([
+                    ft.Text("CATEGORY MANAGEMENT", size=11, weight=ft.FontWeight.W_700, color=TXT3),
+                    ft.Text("Organize your vault with preset and custom categories.", size=11, color=TXT3, italic=True),
+                ], spacing=2, expand=True),
+                ft.ElevatedButton(
+                    text="Add Category", icon=ft.Icons.ADD, color="#ffffff",
+                    bgcolor=ACCENT, height=36,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=lambda e: (
+                        setattr(tf_new_cat_name, 'value', ''),
+                        _new_cat_callback.__setitem__(0, None),
+                        setattr(new_cat_dialog, 'open', True),
+                        page.update(),
+                    ),
+                ),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Divider(height=1, color=BORDER),
+            category_mgmt_list,
+        ], spacing=12)),
         ft.Container(height=20),
         ft.Container(bgcolor=CARD, border_radius=12, border=ft.border.all(1, f"{DANGER}30"), padding=20, content=ft.Column([
             ft.Text("DANGER ZONE", size=11, weight=ft.FontWeight.W_700, color=DANGER),
@@ -1095,7 +1322,9 @@ def main(page: ft.Page):
             domain_dialog.open = False
             pending_note_pw_id[0] = pw['id']
             show_edit_note(None)
-            tf_note_tags.value = f"#associated_password, #{pw['domain']}"
+            note_tags_list.clear()
+            note_tags_list.extend([f"#associated_password", f"#{pw['domain']}"])
+            _rebuild_tag_chips()
             tf_note_title.value = f"Note for {pw['domain']} ({pw['username']})"
             page.update()
 
@@ -1533,7 +1762,7 @@ def main(page: ft.Page):
         settings_btn.content.color = NAV_SETTINGS
 
         views = [vault_view, notes_view, health_view, generator_view, ml_profiling_view, settings_view]
-        content_switcher.content = views[idx]
+        _genie_switch(views[idx])
         if idx == 0: 
             load_vault_categories()
             refresh_vault()
@@ -1568,12 +1797,55 @@ def main(page: ft.Page):
                 margin=ft.margin.only(bottom=4)),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4))
 
-    content_switcher = ft.AnimatedSwitcher(
-        content=vault_view, expand=True,
-        transition=ft.AnimatedSwitcherTransition.SCALE,
-        duration=ANIM_NORMAL + 150, switch_in_curve=ft.AnimationCurve.EASE_OUT_BACK,
-        switch_out_curve=ft.AnimationCurve.EASE_IN)
-    app_layout = ft.Row([sidebar, content_switcher], expand=True, spacing=0)
+    # ── Genie Effect Container ──
+    # Wrap each view in a Container that animates opacity, scale and offset
+    # to produce a clean "genie" entrance every time a tab switches.
+    _genie_duration = 380  # ms
+    _genie_curve = ft.AnimationCurve.EASE_OUT_CUBIC
+
+    content_area = ft.Container(
+        content=vault_view,
+        expand=True,
+        opacity=1,
+        scale=1,
+        offset=ft.Offset(0, 0),
+        animate_opacity=ft.Animation(_genie_duration, _genie_curve),
+        animate_scale=ft.Animation(_genie_duration, ft.AnimationCurve.EASE_OUT_BACK),
+        animate_offset=ft.Animation(_genie_duration, _genie_curve),
+    )
+
+    def _genie_switch(new_view):
+        """Animate out → swap → animate in for a macOS-genie-like effect."""
+        # Phase 1: shrink + fade out towards bottom-left (genie vanish)
+        content_area.opacity = 0
+        content_area.scale = 0.92
+        content_area.offset = ft.Offset(0, 0.03)
+        page.update()
+
+        def _phase2():
+            # Snap to start position (no animation)
+            content_area.animate_opacity = None
+            content_area.animate_scale = None
+            content_area.animate_offset = None
+            content_area.opacity = 0
+            content_area.scale = 0.88
+            content_area.offset = ft.Offset(0, 0.06)
+            content_area.content = new_view
+            page.update()
+
+            # Re-enable animations and fly in
+            content_area.animate_opacity = ft.Animation(_genie_duration, _genie_curve)
+            content_area.animate_scale = ft.Animation(_genie_duration, ft.AnimationCurve.EASE_OUT_BACK)
+            content_area.animate_offset = ft.Animation(_genie_duration, _genie_curve)
+            content_area.opacity = 1
+            content_area.scale = 1
+            content_area.offset = ft.Offset(0, 0)
+            page.update()
+
+        import threading as _th
+        _th.Timer(0.16, _phase2).start()  # wait for phase-1 to mostly finish
+
+    app_layout = ft.Row([sidebar, content_area], expand=True, spacing=0)
 
     def show_main_app():
         page.clean()
