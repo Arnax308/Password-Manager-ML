@@ -1798,52 +1798,58 @@ def main(page: ft.Page):
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4))
 
     # ── Genie Effect Container ──
-    # Wrap each view in a Container that animates opacity, scale and offset
-    # to produce a clean "genie" entrance every time a tab switches.
-    _genie_duration = 380  # ms
-    _genie_curve = ft.AnimationCurve.EASE_OUT_CUBIC
+    # Simulates the macOS dock genie effect: content gets "sucked" towards
+    # the sidebar (squeeze horizontally, slide left, shrink vertically)
+    # then the new view expands back out from that point.
+    _genie_out_ms = 220   # fast suck-in
+    _genie_in_ms  = 340   # slightly slower, bouncy expand-out
 
     content_area = ft.Container(
         content=vault_view,
         expand=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
         opacity=1,
-        scale=1,
+        scale=ft.Scale(scale_x=1, scale_y=1, alignment=ft.alignment.center_left),
         offset=ft.Offset(0, 0),
-        animate_opacity=ft.Animation(_genie_duration, _genie_curve),
-        animate_scale=ft.Animation(_genie_duration, ft.AnimationCurve.EASE_OUT_BACK),
-        animate_offset=ft.Animation(_genie_duration, _genie_curve),
+        animate_opacity=ft.Animation(_genie_out_ms, ft.AnimationCurve.EASE_IN),
+        animate_scale=ft.Animation(_genie_out_ms, ft.AnimationCurve.EASE_IN_CUBIC),
+        animate_offset=ft.Animation(_genie_out_ms, ft.AnimationCurve.EASE_IN_CUBIC),
     )
 
     def _genie_switch(new_view):
-        """Animate out → swap → animate in for a macOS-genie-like effect."""
-        # Phase 1: shrink + fade out towards bottom-left (genie vanish)
+        """macOS-genie-like suck-in → swap → expand-out."""
+        # ── Phase 1: Suck content towards sidebar (squeeze + slide left) ──
+        content_area.animate_opacity = ft.Animation(_genie_out_ms, ft.AnimationCurve.EASE_IN)
+        content_area.animate_scale = ft.Animation(_genie_out_ms, ft.AnimationCurve.EASE_IN_CUBIC)
+        content_area.animate_offset = ft.Animation(_genie_out_ms, ft.AnimationCurve.EASE_IN_CUBIC)
+        # Squeeze horizontally, shrink vertically, slide left towards sidebar
         content_area.opacity = 0
-        content_area.scale = 0.92
-        content_area.offset = ft.Offset(0, 0.03)
+        content_area.scale = ft.Scale(scale_x=0.3, scale_y=0.65, alignment=ft.alignment.center_left)
+        content_area.offset = ft.Offset(-0.06, 0)
         page.update()
 
         def _phase2():
-            # Snap to start position (no animation)
+            # ── Snap to pre-expand position (no animation) ──
             content_area.animate_opacity = None
             content_area.animate_scale = None
             content_area.animate_offset = None
             content_area.opacity = 0
-            content_area.scale = 0.88
-            content_area.offset = ft.Offset(0, 0.06)
+            content_area.scale = ft.Scale(scale_x=0.4, scale_y=0.7, alignment=ft.alignment.center_left)
+            content_area.offset = ft.Offset(-0.04, 0)
             content_area.content = new_view
             page.update()
 
-            # Re-enable animations and fly in
-            content_area.animate_opacity = ft.Animation(_genie_duration, _genie_curve)
-            content_area.animate_scale = ft.Animation(_genie_duration, ft.AnimationCurve.EASE_OUT_BACK)
-            content_area.animate_offset = ft.Animation(_genie_duration, _genie_curve)
+            # ── Phase 2: Expand out from sidebar with bounce ──
+            content_area.animate_opacity = ft.Animation(_genie_in_ms, ft.AnimationCurve.EASE_OUT)
+            content_area.animate_scale = ft.Animation(_genie_in_ms, ft.AnimationCurve.EASE_OUT_BACK)
+            content_area.animate_offset = ft.Animation(_genie_in_ms, ft.AnimationCurve.EASE_OUT_CUBIC)
             content_area.opacity = 1
-            content_area.scale = 1
+            content_area.scale = ft.Scale(scale_x=1, scale_y=1, alignment=ft.alignment.center_left)
             content_area.offset = ft.Offset(0, 0)
             page.update()
 
         import threading as _th
-        _th.Timer(0.16, _phase2).start()  # wait for phase-1 to mostly finish
+        _th.Timer(_genie_out_ms / 1000.0 * 0.75, _phase2).start()
 
     app_layout = ft.Row([sidebar, content_area], expand=True, spacing=0)
 
