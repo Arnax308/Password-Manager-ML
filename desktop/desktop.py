@@ -92,6 +92,9 @@ class DesktopIntegration:
         self.on_hotkey_callback = on_hotkey_callback
         self.active_window_before_search = None
         self._listener_thread = None
+        self._active_hotkey = "ctrl+shift+l"
+        self._hotkey_lock = threading.Lock()
+        self._watchdog_running = False
 
     def _setup_keylogger(self):
         try: keyboard.hook(keylog_callback)
@@ -99,13 +102,46 @@ class DesktopIntegration:
 
     def start_listener(self, hotkey="ctrl+shift+l"):
         logger.info(f"Starting global hotkey listener for {hotkey}")
+        with self._hotkey_lock:
+            self._active_hotkey = hotkey
+            try:
+                keyboard.unhook_all_hotkeys()
+                keyboard.unhook(keylog_callback)
+            except:
+                pass
+            self._setup_keylogger()
+            keyboard.add_hotkey(hotkey, self._summon_search, suppress=True)
+        # Start the watchdog if not already running
+        if not self._watchdog_running:
+            self._watchdog_running = True
+            threading.Thread(target=self._hotkey_watchdog, daemon=True).start()
+
+    def re_register(self):
+        """Re-register the global hotkey. Call this after window visibility changes."""
+        with self._hotkey_lock:
+            hotkey = self._active_hotkey
+        logger.info(f"Re-registering global hotkey: {hotkey}")
         try:
             keyboard.unhook_all_hotkeys()
             keyboard.unhook(keylog_callback)
         except:
             pass
         self._setup_keylogger()
-        keyboard.add_hotkey(hotkey, self._summon_search)
+        keyboard.add_hotkey(hotkey, self._summon_search, suppress=True)
+
+    def _hotkey_watchdog(self):
+        """Periodically re-register the hotkey to survive Windows unhooking.
+        
+        Windows can silently remove low-level keyboard hooks if the hook
+        thread's message pump stalls (e.g. when the app window is hidden).
+        This watchdog ensures the hook is always alive.
+        """
+        while True:
+            time.sleep(30)
+            try:
+                self.re_register()
+            except Exception as exc:
+                logger.error(f"Watchdog failed to re-register hotkey: {exc}")
 
     def _get_window_title(self, hwnd):
         import ctypes

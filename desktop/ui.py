@@ -128,6 +128,12 @@ def main(page: ft.Page):
         page.window.minimized = False
         page.window.focused = True
         page.update()
+        # Re-register the global hotkey — Windows may have silently
+        # unhooked it while the window was hidden in the system tray.
+        try:
+            desktop_agent.re_register()
+        except Exception:
+            pass
 
     def on_tray_quit(icon, item):
         icon.stop()
@@ -150,6 +156,12 @@ def main(page: ft.Page):
         if e.data == "close":
             page.window.visible = False
             page.update()
+        elif e.data in ("show", "focus", "restore"):
+            # Re-register the global hotkey after any visibility restoration.
+            try:
+                desktop_agent.re_register()
+            except Exception:
+                pass
 
     page.window.on_event = on_window_event
     page.fonts = {"Inter": "https://raw.githubusercontent.com/rsms/inter/master/docs/font-files/Inter-Regular.woff2"}
