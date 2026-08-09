@@ -135,20 +135,22 @@ textarea {
   line-height: 1.5;
 }
 
-/* RANGE SLIDERS */
+/* ══════════════════════════════════════════════════════════════════════════
+   RANGE SLIDERS (single canonical block)
+   ══════════════════════════════════════════════════════════════════════════ */
 input[type="range"] {
   -webkit-appearance: none;
+  -moz-appearance: none;
   appearance: none;
   width: 100%;
   height: 6px;
-  background: var(--card-border, #1e293b);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--card-border);
   border-radius: 6px;
   outline: none;
   margin: 12px 0;
   cursor: pointer;
-  box-shadow: none;
   padding: 0;
-  border: none;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
@@ -161,37 +163,62 @@ input[type="range"]::-webkit-slider-runnable-track {
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: var(--accent-color, #10b981);
-  box-shadow: 0 0 10px var(--accent-glow, rgba(16, 185, 129, 0.4));
+  background: var(--accent-color);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 10px var(--accent-glow);
   cursor: pointer;
-  margin-top: -6px;
-  transition: transform 0.15s ease, background-color 0.15s ease;
-  border: 2px solid var(--surface-color, #0d1420);
+  margin-top: -8px;
+  transition: transform 0.15s ease;
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+  transform: scale(1.15);
 }
 
-/* OPTION TILES & TOGGLE SWITCHES */
-.option-tile {
-  position: relative;
+input[type="range"]::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--card-border);
+  border-radius: 6px;
 }
 
-.option-tile input[type="checkbox"],
-.tile-switch-wrapper input[type="checkbox"] {
+input[type="range"]::-moz-range-thumb {
+  -moz-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 10px var(--accent-glow);
+  cursor: pointer;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   CHECKBOX TOGGLE SWITCHES — UNIVERSAL RESET
+   Works for both .option-tile and .tile-switch-wrapper contexts.
+   The native <input type="checkbox"> is made fully invisible via
+   sr-only technique. The .tile-switch <span> renders the visual toggle.
+   ══════════════════════════════════════════════════════════════════════════ */
+input[type="checkbox"] {
+  /* sr-only: visually hidden but accessible to screen readers */
   position: absolute !important;
-  opacity: 0 !important;
-  width: 0 !important;
-  height: 0 !important;
-  pointer-events: none !important;
-  margin: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
   padding: 0 !important;
-  appearance: none !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
   -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  opacity: 0 !important;
 }
 
 /* ==========================================================================
@@ -1309,6 +1336,7 @@ button:active {
   gap: 12px;
 }
 
+/* Generator option tiles */
 .option-tile {
   background: var(--surface-color);
   border: 1px solid var(--card-border);
@@ -1334,6 +1362,7 @@ button:active {
   flex-direction: column;
   gap: 2px;
   flex: 1;
+  min-width: 0;
 }
 
 .option-name {
@@ -1345,56 +1374,6 @@ button:active {
 .option-sub {
   font-size: 11px;
   color: var(--text-dim);
-}
-
-.option-tile input[type="checkbox"] {
-  position: absolute !important;
-  opacity: 0 !important;
-  width: 0 !important;
-  height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  clip: rect(0 0 0 0) !important;
-  clip-path: inset(50%) !important;
-  overflow: hidden !important;
-  white-space: nowrap !important;
-  pointer-events: none !important;
-  -webkit-appearance: none !important;
-  appearance: none !important;
-}
-
-.tile-switch {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  min-width: 44px;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  transition: background 0.25s ease;
-  flex-shrink: 0;
-  display: inline-block;
-}
-
-.tile-switch::after {
-  content: '';
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 18px;
-  height: 18px;
-  background: #ffffff;
-  border-radius: 50%;
-  transition: transform 0.25s ease;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.option-tile input[type="checkbox"]:checked + .tile-switch {
-  background: var(--accent-color);
-}
-
-.option-tile input[type="checkbox"]:checked + .tile-switch::after {
-  transform: translateX(20px);
 }
 
 .generator-actions-row {
@@ -1589,13 +1568,17 @@ button:active {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
-/* TOGGLE SWITCHES & OPTION TILES */
+/* ══════════════════════════════════════════════════════════════════════════
+   TOGGLE SWITCH — SINGLE CANONICAL VISUAL DEFINITION
+   Used by both .option-tile and .tile-switch-wrapper / .toggle-switch-label
+   ══════════════════════════════════════════════════════════════════════════ */
 .setting-toggle-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
+/* Wrapper labels (settings page, note modal) */
 .tile-switch-wrapper,
 .toggle-switch-label {
   position: relative;
@@ -1604,50 +1587,64 @@ button:active {
   height: 24px;
   cursor: pointer;
   user-select: none;
+  flex-shrink: 0;
 }
 
-.tile-switch-wrapper input,
-.toggle-switch-label input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-  position: absolute;
-}
-
+/* The toggle track — positioned relative in option-tile, absolute in tile-switch-wrapper */
 .tile-switch,
 .toggle-slider {
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background-color: #1f2b3d;
-  border: 1px solid #2e3047;
-  transition: all 0.25s ease;
-  border-radius: 24px;
-  display: block;
+  position: relative;
+  display: inline-block;
+  width: 46px;
+  height: 24px;
+  min-width: 46px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  transition: background 0.25s ease;
+  flex-shrink: 0;
+  pointer-events: none;
 }
 
-.tile-switch:before,
-.toggle-slider:before {
+.tile-switch-wrapper .tile-switch,
+.toggle-switch-label .toggle-slider {
   position: absolute;
-  content: "";
-  height: 18px;
+  top: 0;
+  left: 0;
+}
+
+/* The toggle knob — ONLY uses ::after, nothing else */
+.tile-switch::after,
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
   width: 18px;
-  left: 2px;
-  bottom: 2px;
-  background-color: #94a3b8;
-  transition: all 0.25s ease;
+  height: 18px;
+  background: #94a3b8;
   border-radius: 50%;
+  transition: transform 0.25s ease, background 0.25s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
-.tile-switch-wrapper input:checked + .tile-switch,
-.toggle-switch-label input:checked + .toggle-slider {
-  background-color: #10b981;
-  border-color: #10b981;
+/* IMPORTANT: Kill any ::before pseudo-elements to prevent double-dot */
+.tile-switch::before,
+.toggle-slider::before {
+  display: none !important;
+  content: none !important;
 }
 
-.tile-switch-wrapper input:checked + .tile-switch:before,
-.toggle-switch-label input:checked + .toggle-slider:before {
+/* Checked state: green track */
+input[type="checkbox"]:checked + .tile-switch,
+input[type="checkbox"]:checked + .toggle-slider {
+  background: var(--accent-color);
+}
+
+/* Checked state: white knob slides right */
+input[type="checkbox"]:checked + .tile-switch::after,
+input[type="checkbox"]:checked + .toggle-slider::after {
   transform: translateX(22px);
-  background-color: #ffffff;
+  background: #ffffff;
 }
 
 /* HOTKEY RECORDER BOX */
@@ -2183,47 +2180,4 @@ button:active {
   gap: 6px;
 }
 
-/* CUSTOM RANGE SLIDERS */
-input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 8px;
-  background: var(--surface-color);
-  border: 1px solid var(--card-border);
-  border-radius: 4px;
-  outline: none;
-  margin: 12px 0;
-  cursor: pointer;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--accent-color);
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 10px var(--accent-glow);
-  cursor: pointer;
-  transition: transform 0.15s ease, background-color 0.15s ease;
-}
-
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.15);
-  background: #ffffff;
-  border-color: var(--accent-color);
-}
-
-input[type="range"]::-moz-range-thumb {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--accent-color);
-  border: 2px solid #ffffff;
-  box-shadow: 0 0 10px var(--accent-glow);
-  cursor: pointer;
-}
-
-/* Toggle switch styles consolidated above in generator section */
+/* Range slider and toggle switch styles defined in canonical blocks above */
