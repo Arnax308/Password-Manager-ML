@@ -847,7 +847,10 @@ def startup_event():
 @app.get("/api/popup/prepare")
 @app.post("/api/popup/prepare")
 def prepare_popup_context():
-    return popup.desktop_agent.prepare_context()
+    global _last_popup_trigger
+    ctx = popup.desktop_agent.prepare_context()
+    _last_popup_trigger = ctx
+    return ctx
 
 @app.post("/api/popup/trigger")
 def receive_popup_trigger(payload: PopupTriggerPayload):

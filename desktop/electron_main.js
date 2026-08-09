@@ -12,6 +12,9 @@ const BACKEND_URL = 'http://127.0.0.1:5000';
 const STARTUP_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 const STARTUP_REG_NAME = 'Valtr';
 
+// Suppress harmless Windows GPU shader cache access warning logs
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
 function checkBackendReady(callback) {
   http.get(`${BACKEND_URL}/api/status`, (res) => {
     if (res.statusCode === 200) {
@@ -143,8 +146,19 @@ function showPopupWindow() {
   popupWindow.show();
   popupWindow.focus();
 
-  // Non-blocking background call to Python context capture
-  http.get(`${BACKEND_URL}/api/popup/prepare`, () => {}).on('error', () => {});
+  // Background call to Python context capture with live IPC forward to popup renderer
+  http.get(`${BACKEND_URL}/api/popup/prepare`, (res) => {
+    let body = '';
+    res.on('data', chunk => body += chunk);
+    res.on('end', () => {
+      try {
+        const ctx = JSON.parse(body);
+        if (popupWindow && !popupWindow.isDestroyed() && popupWindow.webContents) {
+          popupWindow.webContents.send('popup-context', ctx);
+        }
+      } catch (e) {}
+    });
+  }).on('error', () => {});
 
   // Notify renderer popup view to focus search input and refresh
   if (popupWindow.webContents) {

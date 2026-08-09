@@ -256,7 +256,7 @@ function handleGlobalHeaderSearch() {
   if (activeView.id === 'view-vault') {
     renderVaultList(cachedPasswords, query);
   } else if (activeView.id === 'view-notes') {
-    renderNotesList(cachedNotes, query);
+    renderNotesGrid(cachedNotes, query);
   } else if (activeView.id === 'view-logs') {
     renderLogsList(cachedLogs, query);
   }
@@ -401,8 +401,8 @@ function renderVaultList(passwords, overrideQuery = null) {
         const safeU = u.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         return `
           <span class="badge-tag" style="font-size: 11.5px; padding: 2px 7px; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); color: var(--text-main); display: inline-flex; align-items: center; gap: 4px; margin-right: 4px;">
-            <i class="fa-regular fa-user" style="font-size: 9.5px; color: var(--accent-color);"></i> ${u}
-            <button class="btn-icon" onclick="copyToClipboard('${safeU}', 'Username copied!')" title="Copy ${u}" style="font-size: 9.5px; padding: 1px 3px; border: none; background: transparent;"><i class="fa-regular fa-copy"></i></button>
+            <i class="fa-solid fa-user" style="font-size: 9.5px; color: var(--accent-color);"></i> ${u}
+            <button class="btn-icon" onclick="copyToClipboard('${safeU}', 'Username copied!')" title="Copy ${u}" style="font-size: 9.5px; padding: 1px 3px; border: none; background: transparent;"><i class="fa-solid fa-copy"></i></button>
           </span>`;
       }).join('');
 
@@ -444,9 +444,9 @@ function renderVaultList(passwords, overrideQuery = null) {
           </td>
           <td>
             <div class="vault-actions-cell">
-              <button class="btn-icon" onclick="copyToClipboard('${safePw}', 'Password copied!')" title="Copy Password"><i class="fa-regular fa-key"></i></button>
+              <button class="btn-icon" onclick="copyToClipboard('${safePw}', 'Password copied!')" title="Copy Password"><i class="fa-solid fa-copy"></i></button>
               <button class="btn-icon" onclick="openEditPasswordModalById(${acct.id})" title="Edit Entry"><i class="fa-solid fa-pen"></i></button>
-              <button class="btn-icon text-danger" onclick="deletePasswordEntry(${acct.id})" title="Delete Entry"><i class="fa-regular fa-trash-can"></i></button>
+              <button class="btn-icon text-danger" onclick="deletePasswordEntry(${acct.id})" title="Delete Entry"><i class="fa-solid fa-trash-can"></i></button>
             </div>
           </td>
         </tr>`;
@@ -771,7 +771,8 @@ function filterNotesTag(tagName, btnElement) {
   renderNotesGrid(cachedNotes);
 }
 
-function renderNotesGrid(notes) {
+function renderNotesGrid(notes, overrideQuery = null) {
+  const searchQuery = overrideQuery !== null ? overrideQuery : '';
   document.getElementById('notes-subtitle-count').innerText = `${notes.length} End-to-end encrypted entries`;
 
   // Collect all unique tags across notes for the tag pills bar
@@ -791,10 +792,15 @@ function renderNotesGrid(notes) {
     tagPillsBar.innerHTML = pillsHtml;
   }
 
-  // Filter notes by current tag filter
+  // Filter notes by current tag filter AND search query
   const filteredNotes = notes.filter(n => {
-    if (currentNoteTagFilter === 'All') return true;
-    return (n.tags || []).map(t => t.toUpperCase()).includes(currentNoteTagFilter);
+    const tagMatch = currentNoteTagFilter === 'All' || (n.tags || []).map(t => t.toUpperCase()).includes(currentNoteTagFilter);
+    if (!tagMatch) return false;
+    if (!searchQuery) return true;
+    const titleMatch = (n.title || '').toLowerCase().includes(searchQuery);
+    const contentMatch = (n.content || '').toLowerCase().includes(searchQuery);
+    const tagTextMatch = (n.tags || []).some(t => t.toLowerCase().includes(searchQuery));
+    return titleMatch || contentMatch || tagTextMatch;
   });
 
   const grid = document.getElementById('notes-grid');
@@ -1524,13 +1530,18 @@ async function loadLogsData() {
   }
 }
 
-function renderLogsList(logs) {
+function renderLogsList(logs, overrideQuery = null) {
+  const searchQuery = overrideQuery !== null ? overrideQuery : '';
   const tbody = document.getElementById('logs-table-body');
   if (!tbody) return;
 
   let filtered = logs.filter(l => {
-    if (currentLogFilter === 'All') return true;
-    return l.severity === currentLogFilter;
+    const sevMatch = currentLogFilter === 'All' || l.severity === currentLogFilter;
+    if (!sevMatch) return false;
+    if (!searchQuery) return true;
+    const typeMatch = (l.event_type || '').toLowerCase().includes(searchQuery);
+    const descMatch = (l.description || '').toLowerCase().includes(searchQuery);
+    return typeMatch || descMatch;
   });
 
   const countEl = document.getElementById('logs-subtitle-count');

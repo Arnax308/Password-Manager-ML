@@ -66,16 +66,17 @@ async function loadPopupPasswords() {
 function extractDomainOrSite(url, title) {
   if (url) {
     try {
-      let u = url;
+      let u = url.trim();
       if (!u.startsWith('http://') && !u.startsWith('https://')) {
         u = 'https://' + u;
       }
-      const host = new URL(u).hostname.replace(/^www\./, '');
+      const parsedUrl = new URL(u);
+      let host = parsedUrl.hostname.toLowerCase().replace(/^www\./, '');
       if (host && host.includes('.')) return host;
     } catch (e) {}
   }
   if (title) {
-    const knownSites = ['github', 'google', 'facebook', 'twitter', 'x.com', 'amazon', 'reddit', 'netflix', 'linkedin', 'microsoft', 'apple', 'discord', 'figma', 'notion', 'spotify'];
+    const knownSites = ['github', 'google', 'facebook', 'twitter', 'x.com', 'amazon', 'reddit', 'netflix', 'linkedin', 'microsoft', 'apple', 'discord', 'figma', 'notion', 'spotify', 'nexusmods', 'zoom', 'ubisoft', 'steampowered', 'epicgames'];
     const lowerTitle = title.toLowerCase();
     for (const site of knownSites) {
       if (lowerTitle.includes(site)) {
@@ -83,7 +84,7 @@ function extractDomainOrSite(url, title) {
       }
     }
     const match = title.match(/([a-zA-Z0-9-]+\.[a-zA-Z]{2,})/);
-    if (match) return match[1].toLowerCase();
+    if (match) return match[1].toLowerCase().replace(/^www\./, '');
   }
   return '';
 }
@@ -101,11 +102,19 @@ function handlePopupSearch() {
     return;
   }
 
-  const matches = cachedPopupPasswords.filter(p =>
-    p.domain.toLowerCase().includes(query) ||
-    query.includes(p.domain.toLowerCase()) ||
-    p.username.toLowerCase().includes(query)
-  );
+  const cleanQuery = query.replace(/^www\./, '');
+  const matches = cachedPopupPasswords.filter(p => {
+    const entryDom = (p.domain || '').toLowerCase().replace(/^www\./, '');
+    const entryUser = (p.username || '').toLowerCase();
+
+    const domainMatch = entryDom && (
+      entryDom.includes(cleanQuery) || 
+      cleanQuery.includes(entryDom) ||
+      cleanQuery.split('.').some(part => part.length > 3 && entryDom.includes(part))
+    );
+    const userMatch = entryUser.includes(cleanQuery);
+    return domainMatch || userMatch;
+  });
 
   if (matches.length === 0) {
     container.innerHTML = `
@@ -315,6 +324,9 @@ document.addEventListener('DOMContentLoaded', () => {
   loadPopupPasswords();
 
   if (ipcRenderer) {
+    ipcRenderer.on('popup-context', (event, data) => {
+      handleContextData(data);
+    });
     ipcRenderer.on('popup-shown', () => {
       onPopupShown();
     });
@@ -322,6 +334,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   onPopupShown();
 });
+
+function handleContextData(data) {
+  if (!data) return;
+  lastTypedUser = data.typed_user || '';
+  const domain = extractDomainOrSite(data.browser_url, data.title);
+  if (domain) {
+    lastDetectedDomain = domain;
+    const input = document.getElementById('popup-search-input');
+    if (input) {
+      input.value = domain;
+      handlePopupSearch();
+    }
+  }
+}
 
 async function onPopupShown() {
   const input = document.getElementById('popup-search-input');
@@ -334,14 +360,7 @@ async function onPopupShown() {
     const res = await fetch(`${API_BASE}/api/popup/trigger`);
     if (res.ok) {
       const data = await res.json();
-      lastTypedUser = data.typed_user || '';
-      const domain = extractDomainOrSite(data.browser_url, data.title);
-      lastDetectedDomain = domain;
-
-      if (domain && input) {
-        input.value = domain;
-        handlePopupSearch();
-      }
+      handleContextData(data);
     }
   } catch (e) {}
 }
