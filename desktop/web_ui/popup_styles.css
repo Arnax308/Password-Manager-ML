@@ -262,6 +262,33 @@ body {
   text-overflow: ellipsis;
 }
 
+.popup-user-chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.popup-user-chip {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--card-border);
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all 0.15s;
+}
+
+.popup-user-chip:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
 .popup-result-score {
   font-size: 11px;
   font-weight: 700;

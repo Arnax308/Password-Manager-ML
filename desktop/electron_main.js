@@ -107,12 +107,8 @@ function initPopupWindow() {
 
   popupWindow.loadFile(path.join(__dirname, 'web_ui', 'popup.html'));
 
-  // Hide on blur instead of destroying window for instant re-opening
-  popupWindow.on('blur', () => {
-    if (popupWindow && !popupWindow.isDestroyed() && !popupWindow.webContents.isDevToolsOpened()) {
-      popupWindow.hide();
-    }
-  });
+  // Persistent popup: remains open when focus changes (e.g. clicking website textboxes).
+  // Closes only on explicit close button ('X'), ESC key, or after successful AutoFill execution.
 
   popupWindow.on('closed', () => {
     popupWindow = null;

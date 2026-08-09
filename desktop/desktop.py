@@ -241,18 +241,32 @@ class DesktopIntegration:
 
     def autotype(self, username, password):
         """Auto-types the credentials into the previous active window."""
-        logger.info(f"Auto-typing for {username}...")
+        # Ensure only ONE username is typed if string contains multiple usernames (comma or slash separated)
+        clean_user = username or ""
+        for delim in [',', '/']:
+            if delim in clean_user:
+                clean_user = clean_user.split(delim)[0]
+        clean_user = clean_user.strip()
+
+        logger.info(f"Auto-typing single username '{clean_user}'...")
         
+        # Brief pause to allow Electron popup to hide so Windows OS returns focus to target application
+        time.sleep(0.15)
+
         if self.active_window_before_search:
             try:
-                # Restore focus to the underlying application
-                app = application.Application().connect(handle=self.active_window_before_search)
-                app.top_window().set_focus()
-                time.sleep(0.1) # Brief pause for focus change
-                
-                # Type username, tab, type password, enter
-                # Using pywinauto's robust keyboard module
-                pykeyboard.send_keys(username, with_spaces=True)
+                import ctypes
+                user32 = ctypes.windll.user32
+                hwnd = self.active_window_before_search
+
+                # Use native Win32 API to bring target app to foreground without resetting element focus
+                if user32.IsWindow(hwnd):
+                    user32.ShowWindow(hwnd, 9) # SW_RESTORE / SW_SHOW
+                    user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.1)
+
+                # Type single username, tab, type password, enter
+                pykeyboard.send_keys(clean_user, with_spaces=True)
                 time.sleep(0.05)
                 pykeyboard.send_keys("{TAB}")
                 time.sleep(0.05)

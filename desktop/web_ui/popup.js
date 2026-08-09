@@ -137,19 +137,33 @@ function handlePopupSearch() {
     else if (scorePct < 75) scoreClass = 'popup-score-mid';
 
     const safePw = p.password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const safeUser = p.username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    
+    // Parse usernames split by comma or slash
+    const userParts = (p.username || '').split(/[,/]/).map(u => u.trim()).filter(Boolean);
+    const primaryUser = userParts[0] || p.username || '';
+    const safePrimaryUser = primaryUser.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    let userDisplayHtml = '';
+    if (userParts.length > 1) {
+      userDisplayHtml = `<div class="popup-user-chips-container">` + userParts.map(u => {
+        const safeU = u.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `<span class="popup-user-chip" onclick="event.stopPropagation(); popupAutotype('${safeU}', '${safePw}')" title="AutoFill with ${u}"><i class="fa-solid fa-user"></i> ${u}</span>`;
+      }).join(' ') + `</div>`;
+    } else {
+      userDisplayHtml = `<div class="popup-result-user">${p.username}</div>`;
+    }
 
     return `
       <div class="popup-result-card">
         <div class="popup-result-avatar">${avatarChar}</div>
         <div class="popup-result-info">
           <div class="popup-result-domain">${p.domain}</div>
-          <div class="popup-result-user">${p.username}</div>
+          ${userDisplayHtml}
         </div>
         <span class="popup-result-score ${scoreClass}">${scorePct}%</span>
         <div class="popup-result-actions">
-          <button class="popup-btn-icon" onclick="copyPopupPassword('${safePw}')" title="Copy Password"><i class="fa-regular fa-copy"></i></button>
-          <button class="popup-btn-accent" onclick="popupAutotype('${safeUser}', '${safePw}')" title="AutoFill"><i class="fa-solid fa-bolt"></i></button>
+          <button class="popup-btn-icon" onclick="copyPopupPassword('${safePw}')" title="Copy Password"><i class="fa-solid fa-copy"></i></button>
+          <button class="popup-btn-accent" onclick="popupAutotype('${safePrimaryUser}', '${safePw}')" title="AutoFill with ${primaryUser}"><i class="fa-solid fa-bolt"></i></button>
         </div>
       </div>`;
   }).join('');
@@ -171,18 +185,17 @@ function copyPopupPassword(pw) {
 }
 
 async function popupAutotype(username, password) {
+  // Immediately close popup window so Windows OS restores focus to active browser input box
+  closePopup();
+
   try {
-    const res = await fetch(`${API_BASE}/api/popup/autotype`, {
+    fetch(`${API_BASE}/api/popup/autotype`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
-    if (res.ok) {
-      showPopupToast('Auto-typing...');
-      setTimeout(closePopup, 500);
-    }
   } catch (err) {
-    showPopupToast('AutoType failed', 'error');
+    console.error('AutoType fetch failed:', err);
   }
 }
 
