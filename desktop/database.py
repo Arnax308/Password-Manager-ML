@@ -243,8 +243,10 @@ def add_note(title: str, enc_content: str, tags: str, nonce: str, is_hidden: boo
         INSERT INTO notes (title, encrypted_content, tags, nonce, created_at, updated_at, is_hidden)
         VALUES (?, ?, ?, ?, ?, ?, ?)
     ''', (title, enc_content, tags, nonce, now, now, int(is_hidden)))
+    note_id = cursor.lastrowid
     conn.commit()
     conn.close()
+    return note_id
 
 def update_note(n_id: int, title: str, enc_content: str, tags: str, nonce: str, is_hidden: bool = True):
     conn = sqlite3.connect(DB_PATH)

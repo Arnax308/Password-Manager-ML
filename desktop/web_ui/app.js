@@ -29,8 +29,78 @@ function togglePasswordVisibility(inputId) {
   input.type = input.type === 'password' ? 'text' : 'password';
 }
 
+// SIDEBAR COLLAPSE / EXPAND TOGGLE
+function initSidebarState() {
+  const isCollapsed = localStorage.getItem('valtr_sidebar_collapsed') === 'true';
+  const sidebar = document.getElementById('app-sidebar');
+  const toggleIcon = document.getElementById('sidebar-toggle-icon');
+  if (sidebar) {
+    if (isCollapsed) {
+      sidebar.classList.add('collapsed');
+      if (toggleIcon) toggleIcon.className = 'fa-solid fa-chevron-right';
+    } else {
+      sidebar.classList.remove('collapsed');
+      if (toggleIcon) toggleIcon.className = 'fa-solid fa-chevron-left';
+    }
+  }
+}
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('app-sidebar');
+  const toggleIcon = document.getElementById('sidebar-toggle-icon');
+  if (!sidebar) return;
+
+  const isCollapsed = sidebar.classList.toggle('collapsed');
+  localStorage.setItem('valtr_sidebar_collapsed', isCollapsed ? 'true' : 'false');
+
+  if (toggleIcon) {
+    toggleIcon.className = isCollapsed ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-left';
+  }
+}
+
+// SLIDER TRACK FILL DYNAMIC UPDATER
+function updateSliderFill(input) {
+  if (!input) return;
+  const min = parseFloat(input.min) || 0;
+  const max = parseFloat(input.max) || 100;
+  const val = parseFloat(input.value) || 0;
+  const pct = ((val - min) / (max - min)) * 100;
+  const accentColor = getComputedStyle(document.body).getPropertyValue('--accent-color').trim() || '#10b981';
+  const trackColor = getComputedStyle(document.body).getPropertyValue('--card-border').trim() || '#1e293b';
+  input.style.background = `linear-gradient(to right, ${accentColor} 0%, ${accentColor} ${pct}%, ${trackColor} ${pct}%, ${trackColor} 100%)`;
+}
+
+function initSliderFills() {
+  document.querySelectorAll('input[type="range"]').forEach(input => {
+    updateSliderFill(input);
+    input.addEventListener('input', () => updateSliderFill(input));
+  });
+}
+
+// INTERFACE THEMES
+function setTheme(themeName) {
+  document.body.setAttribute('data-theme', themeName);
+  localStorage.setItem('valtr_theme', themeName);
+  document.querySelectorAll('[data-theme-pill]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-theme-pill') === themeName);
+  });
+  initSliderFills();
+  showToast(`Theme set to ${themeName}`);
+}
+
+function initTheme() {
+  const theme = localStorage.getItem('valtr_theme') || 'Obsidian';
+  document.body.setAttribute('data-theme', theme);
+  document.querySelectorAll('[data-theme-pill]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-theme-pill') === theme);
+  });
+}
+
 // APP INITIALIZATION
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme();
+  initSidebarState();
+  initSliderFills();
   setupNavigation();
   checkAppStatus();
 });
@@ -154,6 +224,7 @@ async function loadVaultData() {
     const res = await fetch(`${API_BASE}/api/passwords`);
     cachedPasswords = res.ok ? await res.json() : [];
     renderVaultList(cachedPasswords);
+    updateExpiryNotifications(cachedPasswords);
   } catch (err) {
     console.error('Failed to load vault data:', err);
   }
@@ -195,91 +266,108 @@ function renderVaultList(passwords, overrideQuery = null) {
 
   document.getElementById('vault-subtitle-count').innerText = `${passwords.length} secure entries stored locally.`;
 
-  // Group by Domain
-  const grouped = {};
-  filtered.forEach(p => {
-    if (!grouped[p.domain]) grouped[p.domain] = [];
-    grouped[p.domain].push(p);
-  });
+  const tbody = document.getElementById('vault-table-body');
+  if (!tbody) return;
 
-  const gridContainer = document.getElementById('vault-domain-grid');
-  gridContainer.innerHTML = '';
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align: center; padding: 36px; color: var(--text-dim);">
+          <i class="fa-solid fa-folder-open mb-2" style="font-size: 28px; display: block;"></i>
+          No password entries found matching '${searchQuery || currentCategoryFilter}'.
+        </td>
+      </tr>`;
+    return;
+  }
 
-  Object.entries(grouped).forEach(([domain, accounts]) => {
-    const avatarChar = domain ? domain[0].toUpperCase() : '?';
-    const avgScore = accounts.reduce((acc, curr) => acc + (curr.strength_score || 1.0), 0) / accounts.length;
-    const scorePct = Math.round(avgScore * 100);
+  const now = new Date();
 
-    let borderClass = 'border-accent';
-    let fillClass = 'fill-accent';
-    let textClass = 'text-accent';
-    if (scorePct < 50) {
-      borderClass = 'border-danger';
-      fillClass = 'fill-danger';
-      textClass = 'text-danger';
-    } else if (scorePct < 75) {
-      borderClass = 'border-warn';
-      fillClass = 'fill-warn';
-      textClass = 'text-warn';
+  tbody.innerHTML = filtered.map(acct => {
+    const avatarChar = acct.domain ? acct.domain[0].toUpperCase() : '?';
+    const acctScore = Math.round((acct.strength_score || 1.0) * 100);
+    let acctTextClass = 'text-accent';
+    if (acctScore < 50) acctTextClass = 'text-danger';
+    else if (acctScore < 75) acctTextClass = 'text-warn';
+
+    // Calculate ML TTL remaining days
+    const maxTtl = acct.ttl_days || 365;
+    const createdDate = acct.created_at ? new Date(acct.created_at) : new Date();
+    const ageDays = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+    const remainingTtl = Math.max(0, maxTtl - ageDays);
+    let ttlBadgeClass = 'badge-ttl-ok';
+    if (remainingTtl <= 0 || remainingTtl < 30) ttlBadgeClass = 'badge-ttl-danger';
+    else if (remainingTtl < 90) ttlBadgeClass = 'badge-ttl-warn';
+
+    // Safe string escapes
+    const safePw = acct.password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeUser = acct.username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const safeDomain = acct.domain.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+    // Associated Note Button
+    let noteBtnHtml = '';
+    if (acct.note_id) {
+      noteBtnHtml = `<button class="btn-note-link active" onclick="openAssociatedNote(${acct.note_id})" title="View Associated Secure Note"><i class="fa-solid fa-file-lines"></i> View Note</button>`;
+    } else {
+      noteBtnHtml = `<button class="btn-note-link" onclick="createNoteForPassword(${acct.id}, '${safeDomain}')" title="Create Associated Secure Note"><i class="fa-solid fa-square-plus"></i> Add Note</button>`;
     }
 
-    const cardId = `domain-card-${domain.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    const isMulti = accounts.length > 1;
-
-    // Build account rows HTML for ALL accounts
-    let accountRowsHtml = '';
-    accounts.forEach((acct, idx) => {
-      const acctScore = Math.round((acct.strength_score || 1.0) * 100);
-      let acctTextClass = 'text-accent';
-      if (acctScore < 50) acctTextClass = 'text-danger';
-      else if (acctScore < 75) acctTextClass = 'text-warn';
-      // Escape single quotes for inline JS
-      const safePw = acct.password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const safeUser = acct.username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const safeDomain = acct.domain.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      const safeCat = (acct.category || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-      accountRowsHtml += `
-        <div class="vault-account-row">
-          <div class="vault-account-info">
-            <span class="vault-account-user"><i class="fa-regular fa-user"></i> ${acct.username}</span>
-            ${acct.category ? `<span class="badge-tag" style="font-size:9px; padding:1px 6px;">${acct.category}</span>` : ''}
-            <span class="vault-account-score ${acctTextClass}">${acctScore}%</span>
+    return `
+      <tr>
+        <td>
+          <div class="vault-domain-cell">
+            <div class="card-avatar">${avatarChar}</div>
+            <span class="vault-domain-title">${acct.domain}</span>
           </div>
-          <div class="vault-account-actions">
-            <button class="btn-icon" onclick="event.stopPropagation(); copyToClipboard('${safePw}', 'Password copied!')" title="Copy Password"><i class="fa-regular fa-copy"></i></button>
-            <button class="btn-autofill-sm" onclick="event.stopPropagation(); autoTypeAccount('${safeUser}', '${safePw}')" title="AutoFill"><i class="fa-solid fa-bolt"></i></button>
-            <button class="btn-icon" onclick="event.stopPropagation(); openEditPasswordModalById(${acct.id})" title="Edit"><i class="fa-solid fa-pen"></i></button>
-            <button class="btn-icon text-danger" onclick="event.stopPropagation(); deletePasswordEntry(${acct.id})" title="Delete"><i class="fa-regular fa-trash-can"></i></button>
+        </td>
+        <td>
+          <div class="vault-user-cell">
+            <span>${acct.username}</span>
+            <button class="btn-icon" onclick="copyToClipboard('${safeUser}', 'Username copied!')" title="Copy Username" style="font-size: 11px;"><i class="fa-regular fa-copy"></i></button>
           </div>
-        </div>`;
-    });
+        </td>
+        <td>
+          ${acct.category ? `<span class="badge-tag" style="font-size: 10px; padding: 2px 8px;">${acct.category}</span>` : '<span class="text-dim" style="font-size: 11px;">—</span>'}
+        </td>
+        <td>
+          <span class="font-semibold ${acctTextClass}">${acctScore}%</span>
+        </td>
+        <td>
+          <span class="badge-ttl ${ttlBadgeClass}" title="ML Dynamic Time-To-Live: ${remainingTtl}d remaining of ${maxTtl}d"><i class="fa-solid fa-hourglass-half"></i> ${remainingTtl}d</span>
+        </td>
+        <td>
+          ${noteBtnHtml}
+        </td>
+        <td>
+          <div class="vault-actions-cell">
+            <button class="btn-icon" onclick="copyToClipboard('${safePw}', 'Password copied!')" title="Copy Password"><i class="fa-regular fa-key"></i></button>
+            <button class="btn-icon" onclick="openEditPasswordModalById(${acct.id})" title="Edit Entry"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn-icon text-danger" onclick="deletePasswordEntry(${acct.id})" title="Delete Entry"><i class="fa-regular fa-trash-can"></i></button>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+}
 
-    const domainCard = document.createElement('div');
-    domainCard.className = `vault-item-card ${borderClass}`;
-    domainCard.innerHTML = `
-      <div class="card-domain-header" onclick="toggleDomainAccounts('${cardId}')">
-        <div class="card-avatar">${avatarChar}</div>
-        <div class="card-domain-info">
-          <div class="card-domain-title">${domain}</div>
-          <div class="card-domain-sub">${accounts.length} account${accounts.length > 1 ? 's' : ''} linked</div>
-        </div>
-        ${isMulti ? '<i class="fa-solid fa-chevron-down domain-expand-icon" id="icon-' + cardId + '"></i>' : ''}
-      </div>
-      <div class="vault-accounts-list ${isMulti ? 'collapsed' : ''}" id="${cardId}">
-        ${accountRowsHtml}
-      </div>
-      <div class="strength-bar-block">
-        <div class="strength-label-row">
-          <span>Security Strength</span>
-          <span class="strength-pct-val ${textClass}">${scorePct}%</span>
-        </div>
-        <div class="strength-track">
-          <div class="strength-fill ${fillClass}" style="width: ${scorePct}%;"></div>
-        </div>
-      </div>`;
+async function openAssociatedNote(noteId) {
+  try {
+    const res = await fetch(`${API_BASE}/api/notes`);
+    const notes = res.ok ? await res.json() : [];
+    const note = notes.find(n => n.id === noteId);
+    if (note) {
+      openEditNoteModal(note.id, note.title, note.content, (note.tags || []).join(','), note.is_hidden);
+    } else {
+      showToast('Associated note not found', 'warn');
+    }
+  } catch (err) {
+    showToast('Failed to load associated note', 'error');
+  }
+}
 
-    gridContainer.appendChild(domainCard);
-  });
+function createNoteForPassword(passwordId, domain) {
+  openAddNoteModal();
+  document.getElementById('modal-note-input-title').value = `Note for ${domain}`;
+  document.getElementById('modal-note-linked-password-id').value = passwordId;
+}
 
   // Add New Entry Card Tile
   const addCard = document.createElement('div');
@@ -620,6 +708,8 @@ function openEditNoteModal(id, title, content, tags, isHidden = true) {
 function openAddNoteModal() {
   document.getElementById('modal-note-title').innerText = 'New Secure Note';
   document.getElementById('modal-note-id').value = '';
+  const linkedInput = document.getElementById('modal-note-linked-password-id');
+  if (linkedInput) linkedInput.value = '';
   document.getElementById('modal-note-input-title').value = '';
   document.getElementById('modal-note-input-content').value = '';
   document.getElementById('modal-note-input-tags').value = '';
@@ -646,8 +736,31 @@ async function handleSaveNoteSubmit(e) {
   });
 
   if (res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const newNoteId = data.id;
+    const linkedPwId = document.getElementById('modal-note-linked-password-id')?.value;
+
+    if (linkedPwId && newNoteId) {
+      const pwItem = cachedPasswords.find(p => p.id === parseInt(linkedPwId));
+      if (pwItem) {
+        await fetch(`${API_BASE}/api/passwords/${linkedPwId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            domain: pwItem.domain,
+            username: pwItem.username,
+            password: pwItem.password,
+            note_id: newNoteId,
+            category: pwItem.category || ''
+          })
+        });
+      }
+      document.getElementById('modal-note-linked-password-id').value = '';
+    }
+
     closeModal('modal-note');
     loadNotesData();
+    loadVaultData();
     showToast(id ? 'Note updated!' : 'Secure Note Saved!');
   } else {
     const err = await res.json().catch(() => ({}));
@@ -685,9 +798,10 @@ async function loadHealthData() {
 
     const now = new Date();
     const expired = passwords.filter(p => {
-      const created = new Date(p.created_at);
-      const ttlDays = p.ttl_days || 90;
-      return Math.floor((now - created) / (1000 * 60 * 60 * 24)) >= ttlDays;
+      const created = p.created_at ? new Date(p.created_at) : new Date();
+      const ttlDays = p.ttl_days || 365;
+      const ageDays = Math.floor((now - created) / (1000 * 60 * 60 * 24));
+      return ageDays >= ttlDays;
     });
 
     const total = passwords.length;
@@ -695,7 +809,7 @@ async function loadHealthData() {
 
     document.getElementById('health-score-pct').innerText = `${avgScore}%`;
     document.getElementById('health-score-label').innerText = avgScore >= 80 ? 'Excellent' : (avgScore >= 50 ? 'Fair' : 'Critical');
-    document.getElementById('health-summary-text').innerText = `Security Audit complete. ${weak.length + reused.length} vulnerabilities found.`;
+    document.getElementById('health-summary-text').innerText = `Security Audit complete. ${weak.length + reused.length + expired.length} vulnerabilities found.`;
 
     document.getElementById('health-stat-total').innerText = total;
     document.getElementById('health-stat-weak').innerText = weak.length;
@@ -824,6 +938,7 @@ async function loadSettingsData() {
       if (startupToggle) startupToggle.checked = Boolean(openAtLogin);
     }
 
+    initSliderFills();
     await loadSettingsTags();
   } catch (err) {
     console.error('Failed to load settings:', err);
@@ -1135,5 +1250,81 @@ async function saveNewHotkey(newHotkey) {
   } catch (err) {
     console.error('Failed to save hotkey:', err);
     showToast('Failed to save hotkey', 'warn');
+  }
+}
+
+// ── EXPIRY NOTIFICATIONS & DROPDOWN ──
+function toggleNotificationDropdown() {
+  const dropdown = document.getElementById('notification-dropdown');
+  if (dropdown) dropdown.classList.toggle('active');
+}
+
+function updateExpiryNotifications(passwords) {
+  const now = new Date();
+  const expiringEntries = [];
+
+  passwords.forEach(p => {
+    const createdDate = p.created_at ? new Date(p.created_at) : new Date();
+    const maxTtl = p.ttl_days || 365;
+    const ageDays = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+    const remainingTtl = maxTtl - ageDays;
+
+    if (remainingTtl <= 30) {
+      expiringEntries.push({
+        id: p.id,
+        domain: p.domain,
+        username: p.username,
+        remainingTtl: remainingTtl,
+        maxTtl: maxTtl,
+        isExpired: remainingTtl <= 0
+      });
+    }
+  });
+
+  const badgeEl = document.getElementById('bell-badge-count');
+  const dropdownList = document.getElementById('notification-dropdown-list');
+
+  if (badgeEl) {
+    if (expiringEntries.length > 0) {
+      badgeEl.innerText = expiringEntries.length;
+      badgeEl.style.display = 'inline-flex';
+    } else {
+      badgeEl.style.display = 'none';
+    }
+  }
+
+  if (dropdownList) {
+    if (expiringEntries.length === 0) {
+      dropdownList.innerHTML = `
+        <div class="notification-item-empty">
+          <i class="fa-solid fa-circle-check text-accent" style="font-size: 20px;"></i>
+          <span>All passwords have healthy ML TTL lifetime.</span>
+        </div>`;
+    } else {
+      dropdownList.innerHTML = expiringEntries.map(e => {
+        const cardClass = e.isExpired ? 'danger' : 'warn';
+        const msgText = e.isExpired ? 'Expired!' : `Expires in ${e.remainingTtl}d`;
+        const iconClass = e.isExpired ? 'fa-triangle-exclamation text-danger' : 'fa-hourglass-half text-warn';
+        return `
+          <div class="notification-item-card ${cardClass}">
+            <div class="notification-item-info">
+              <span class="notification-item-title"><i class="fa-solid ${iconClass}"></i> ${e.domain}</span>
+              <span class="notification-item-sub">${e.username} • ${msgText}</span>
+            </div>
+            <button class="btn-autofill-sm" onclick="event.stopPropagation(); toggleNotificationDropdown(); openEditPasswordModalById(${e.id})">Rotate</button>
+          </div>`;
+      }).join('');
+    }
+  }
+
+  // Toast alert if expiring entries exist and haven't notified in this session
+  if (expiringEntries.length > 0 && !window._hasNotifiedExpiry) {
+    window._hasNotifiedExpiry = true;
+    const expiredCount = expiringEntries.filter(e => e.isExpired).length;
+    if (expiredCount > 0) {
+      showToast(`⚠️ ${expiredCount} password${expiredCount > 1 ? 's have' : ' has'} expired! Check Notifications.`, 'warn');
+    } else {
+      showToast(`⚠️ ${expiringEntries.length} password${expiringEntries.length > 1 ? 's are' : ' is'} expiring soon based on ML TTL!`, 'warn');
+    }
   }
 }

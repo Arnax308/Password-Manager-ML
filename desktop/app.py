@@ -740,7 +740,7 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
     ciphertext, nonce = encryption.encrypt_data(req.content, key)
     final_tags = _ensure_notes_tag(req.tags)
     
-    database.add_note(
+    note_id = database.add_note(
         req.title,
         base64.b64encode(ciphertext).decode('utf-8'),
         json.dumps(final_tags),
@@ -748,7 +748,7 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
         req.is_hidden
     )
     notify_update()
-    return {"message": "Note saved successfully"}
+    return {"message": "Note saved successfully", "id": note_id}
 
 @app.put("/api/notes/{item_id}")
 def update_note(item_id: int, req: NoteUpdateRequest, key: bytes = Depends(require_auth)):

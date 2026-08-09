@@ -84,8 +84,8 @@ class MLEngine:
         
         score = max(0.0, min(1.0, score))
         
-        # Calculate dynamic TTL (e.g. min 30 days, max 2 years)
-        ttl_days = int(30 + (score * 700)) 
+        # Calculate dynamic TTL (e.g. min 30 days, max 2 years based on ML entropy & score)
+        ttl_days = int(30 + (score * 700))
         
         return score, ttl_days
 

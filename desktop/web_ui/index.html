@@ -64,46 +64,52 @@
 
     <!-- MAIN APP LAYOUT (MATCHING ALL NEW DESIGN SCREENSHOTS) -->
     <div id="main-app" class="screen">
-      <!-- LEFT EXPANDED SIDEBAR -->
-      <aside class="sidebar-expanded">
+      <!-- LEFT EXPANDED / RETRACTABLE SIDEBAR -->
+      <aside class="sidebar-expanded" id="app-sidebar">
         <div class="sidebar-brand">
-          <div class="brand-title">Valtr <span class="brand-dot">•</span></div>
-          <div class="brand-subtitle">Local-first Vault</div>
+          <div class="brand-text-block">
+            <div class="brand-title">Valtr <span class="brand-dot">•</span></div>
+            <div class="brand-subtitle">Local-first Vault</div>
+          </div>
+          <button class="btn-toggle-sidebar" onclick="toggleSidebar()" title="Collapse / Expand Sidebar">
+            <i class="fa-solid fa-chevron-left" id="sidebar-toggle-icon"></i>
+          </button>
         </div>
         
         <nav class="sidebar-nav-list">
-          <button class="nav-item active" data-tab="vault">
+          <button class="nav-item active" data-tab="vault" title="Vault">
             <i class="fa-solid fa-lock"></i>
             <span>Vault</span>
           </button>
-          <button class="nav-item" data-tab="health">
+          <button class="nav-item" data-tab="health" title="Health">
             <i class="fa-solid fa-shield-cat"></i>
             <span>Health</span>
           </button>
-          <button class="nav-item" data-tab="generator">
+          <button class="nav-item" data-tab="generator" title="Generator">
             <i class="fa-solid fa-asterisk"></i>
             <span>Generator</span>
           </button>
-          <button class="nav-item" data-tab="notes">
+          <button class="nav-item" data-tab="notes" title="Notes">
             <i class="fa-solid fa-file-lines"></i>
             <span>Notes</span>
           </button>
-          <button class="nav-item" data-tab="settings">
+          <button class="nav-item" data-tab="settings" title="Settings">
             <i class="fa-solid fa-gear"></i>
             <span>Settings</span>
           </button>
         </nav>
         
         <div class="sidebar-footer-box">
-          <div class="admin-profile-pill">
+          <div class="admin-profile-pill" title="Admin • Master Level">
             <div class="profile-avatar"><i class="fa-solid fa-user-gear"></i></div>
             <div class="profile-meta">
               <span class="profile-name">Admin</span>
               <span class="profile-role">MASTER LEVEL</span>
             </div>
           </div>
-          <button class="btn-lock-vault" onclick="lockVault()">
-            <i class="fa-solid fa-lock"></i> Lock Vault
+          <button class="btn-lock-vault" onclick="lockVault()" title="Lock Vault">
+            <i class="fa-solid fa-lock"></i>
+            <span>Lock Vault</span>
           </button>
         </div>
       </aside>
@@ -119,7 +125,25 @@
 
           <div class="top-header-actions">
             <button class="top-icon-btn" onclick="refreshCurrentView()" title="Refresh"><i class="fa-solid fa-arrows-rotate"></i></button>
-            <button class="top-icon-btn" onclick="showToast('Security audit complete. No pending notifications.', 'success')" title="Notifications"><i class="fa-solid fa-bell"></i></button>
+            <!-- NOTIFICATION BELL WITH BADGE & DROPDOWN -->
+            <div class="notification-wrapper">
+              <button class="top-icon-btn" id="btn-notifications" onclick="toggleNotificationDropdown()" title="Expiry Notifications">
+                <i class="fa-solid fa-bell"></i>
+                <span class="bell-badge-count" id="bell-badge-count" style="display: none;">0</span>
+              </button>
+              <div class="notification-dropdown" id="notification-dropdown">
+                <div class="notification-dropdown-header">
+                  <span><i class="fa-solid fa-bell text-accent"></i> Expiry Notifications</span>
+                  <button class="btn-icon" onclick="toggleNotificationDropdown()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="notification-dropdown-body" id="notification-dropdown-list">
+                  <div class="notification-item-empty">
+                    <i class="fa-solid fa-circle-check text-accent" style="font-size: 20px;"></i>
+                    <span>All passwords have healthy ML TTL lifetime.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
             <span class="top-status-badge"><i class="fa-solid fa-shield-halved"></i> Unlocked</span>
             <button class="btn-add-new" onclick="openAddPasswordModal()">
               <i class="fa-solid fa-plus"></i> Add New
@@ -145,8 +169,23 @@
               </div>
             </div>
 
-            <!-- VAULT DOMAIN CARDS GRID -->
-            <div id="vault-domain-grid" class="vault-cards-grid"></div>
+            <!-- VAULT ITEMS LIST TABLE VIEW -->
+            <div class="vault-table-wrapper">
+              <table class="vault-table">
+                <thead>
+                  <tr>
+                    <th style="width: 220px;">Domain / Service</th>
+                    <th>Username / Email</th>
+                    <th style="width: 100px;">Category</th>
+                    <th style="width: 100px;">Security</th>
+                    <th style="width: 110px;">ML TTL</th>
+                    <th style="width: 140px;">Associated Note</th>
+                    <th style="width: 110px; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="vault-table-body"></tbody>
+              </table>
+            </div>
 
             <!-- SECURITY EVENTS LOG TABLE -->
             <div class="card card-padded mt-6">
@@ -450,9 +489,9 @@
                 <div class="theme-selector-block">
                   <label class="form-label-bold mb-2">Interface Theme</label>
                   <div class="theme-pills">
-                    <button class="theme-pill active">Obsidian</button>
-                    <button class="theme-pill" onclick="showToast('Theme set to Midnight')">Midnight</button>
-                    <button class="theme-pill" onclick="showToast('Theme set to Titanium')">Titanium</button>
+                    <button class="theme-pill active" data-theme-pill="Obsidian" onclick="setTheme('Obsidian')">Obsidian</button>
+                    <button class="theme-pill" data-theme-pill="Midnight" onclick="setTheme('Midnight')">Midnight</button>
+                    <button class="theme-pill" data-theme-pill="Titanium" onclick="setTheme('Titanium')">Titanium</button>
                   </div>
                 </div>
               </div>
@@ -618,6 +657,7 @@
         </div>
         <form onsubmit="handleSaveNoteSubmit(event)">
           <input type="hidden" id="modal-note-id">
+          <input type="hidden" id="modal-note-linked-password-id">
           <div class="form-group">
             <label>Title</label>
             <input type="text" id="modal-note-input-title" placeholder="e.g. Server Backup Keys" required>
