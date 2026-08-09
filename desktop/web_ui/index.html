@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Valtr - Local-first Vault</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div id="app">
+    <!-- AUTH / UNLOCK SCREEN -->
+    <div id="auth-screen" class="screen active">
+      <div class="auth-wrapper">
+        <div class="auth-top">
+          <div class="app-icon-badge">
+            <i class="fa-solid fa-lock"></i>
+          </div>
+          <h1 class="app-name-title">Valtr</h1>
+          <span class="security-pill">LOCAL-FIRST SECURITY</span>
+        </div>
+
+        <div class="auth-card">
+          <h2 id="auth-card-title">Unlock Vault</h2>
+          <p id="auth-card-subtext">Enter your master password to access your secure data.</p>
+          
+          <form id="auth-form" onsubmit="handleAuthSubmit(event)">
+            <div class="form-group" id="group-setup-name" style="display: none;">
+              <label for="input-setup-name">Your Name (ML Profiling)</label>
+              <div class="input-with-icon">
+                <i class="fa-solid fa-user input-left-icon"></i>
+                <input type="text" id="input-setup-name" placeholder="Enter your full name">
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label for="input-master-password">Master Password</label>
+              <div class="input-with-icon">
+                <i class="fa-solid fa-shield-halved input-left-icon"></i>
+                <input type="password" id="input-master-password" placeholder="••••••••••••" required>
+                <button type="button" class="btn-eye-toggle" onclick="togglePasswordVisibility('input-master-password')">
+                  <i class="fa-solid fa-eye"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div id="auth-error" class="error-msg"></div>
+            
+            <button type="submit" id="btn-auth-submit" class="btn-emerald-unlock">
+              <span id="btn-auth-text">Unlock Vault</span> <i class="fa-solid fa-key"></i>
+            </button>
+
+            <div class="encrypted-warning-note">
+              <span class="warning-dot">•</span> Data is encrypted and stored locally only.
+            </div>
+          </form>
+        </div>
+
+        <div class="auth-footer-caption">
+          v2.4.0-STABLE • END-TO-END ENCRYPTED
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN APP LAYOUT (MATCHING ALL NEW DESIGN SCREENSHOTS) -->
+    <div id="main-app" class="screen">
+      <!-- LEFT EXPANDED SIDEBAR -->
+      <aside class="sidebar-expanded">
+        <div class="sidebar-brand">
+          <div class="brand-title">Valtr <span class="brand-dot">•</span></div>
+          <div class="brand-subtitle">Local-first Vault</div>
+        </div>
+        
+        <nav class="sidebar-nav-list">
+          <button class="nav-item active" data-tab="vault">
+            <i class="fa-solid fa-lock"></i>
+            <span>Vault</span>
+          </button>
+          <button class="nav-item" data-tab="health">
+            <i class="fa-solid fa-shield-cat"></i>
+            <span>Health</span>
+          </button>
+          <button class="nav-item" data-tab="generator">
+            <i class="fa-solid fa-asterisk"></i>
+            <span>Generator</span>
+          </button>
+          <button class="nav-item" data-tab="notes">
+            <i class="fa-solid fa-file-lines"></i>
+            <span>Notes</span>
+          </button>
+          <button class="nav-item" data-tab="settings">
+            <i class="fa-solid fa-gear"></i>
+            <span>Settings</span>
+          </button>
+        </nav>
+        
+        <div class="sidebar-footer-box">
+          <div class="admin-profile-pill">
+            <div class="profile-avatar"><i class="fa-solid fa-user-gear"></i></div>
+            <div class="profile-meta">
+              <span class="profile-name">Admin</span>
+              <span class="profile-role">MASTER LEVEL</span>
+            </div>
+          </div>
+          <button class="btn-lock-vault" onclick="lockVault()">
+            <i class="fa-solid fa-lock"></i> Lock Vault
+          </button>
+        </div>
+      </aside>
+
+      <!-- MAIN CONTAINER -->
+      <div class="main-wrapper">
+        <!-- TOP HEADER BAR -->
+        <header class="top-header-bar">
+          <div class="top-search-box">
+            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+            <input type="text" id="global-header-search" placeholder="Search entries, notes, domains..." oninput="handleGlobalHeaderSearch()">
+          </div>
+
+          <div class="top-header-actions">
+            <button class="top-icon-btn" onclick="refreshCurrentView()" title="Refresh"><i class="fa-solid fa-arrows-rotate"></i></button>
+            <button class="top-icon-btn" onclick="showToast('Security audit complete. No pending notifications.', 'success')" title="Notifications"><i class="fa-solid fa-bell"></i></button>
+            <span class="top-status-badge"><i class="fa-solid fa-shield-halved"></i> Unlocked</span>
+            <button class="btn-add-new" onclick="openAddPasswordModal()">
+              <i class="fa-solid fa-plus"></i> Add New
+            </button>
+          </div>
+        </header>
+
+        <!-- CONTENT VIEWS AREA -->
+        <main class="views-viewport">
+          <!-- VAULT VIEW -->
+          <section id="view-vault" class="tab-view active">
+            <div class="section-title-header">
+              <div>
+                <h2>Vault Items</h2>
+                <p class="subtitle-text" id="vault-subtitle-count">Secure entries stored locally.</p>
+              </div>
+
+              <div class="category-pills-bar">
+                <button class="cat-pill active" onclick="filterVaultCategory('All', this)">All</button>
+                <button class="cat-pill" onclick="filterVaultCategory('Recent', this)">Recent</button>
+                <button class="cat-pill" onclick="filterVaultCategory('Weak', this)">Weak</button>
+                <button class="cat-pill" onclick="filterVaultCategory('Reused', this)">Reused</button>
+              </div>
+            </div>
+
+            <!-- VAULT DOMAIN CARDS GRID -->
+            <div id="vault-domain-grid" class="vault-cards-grid"></div>
+
+            <!-- SECURITY EVENTS LOG TABLE -->
+            <div class="card card-padded mt-6">
+              <div class="card-title-row">
+                <h3>Security Events</h3>
+              </div>
+              <div class="events-table-wrapper">
+                <table class="events-table">
+                  <thead>
+                    <tr>
+                      <th>Event</th>
+                      <th>Account</th>
+                      <th>Status</th>
+                      <th>Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody id="events-table-body">
+                    <tr>
+                      <td><i class="fa-solid fa-key text-accent"></i> Password Updated</td>
+                      <td><code>github.com (user_alpha)</code></td>
+                      <td><span class="status-pill status-secure">SECURE</span></td>
+                      <td>Just now</td>
+                    </tr>
+                    <tr>
+                      <td><i class="fa-solid fa-shield-cat text-accent"></i> Local ML Verification</td>
+                      <td><code>google.com (personal)</code></td>
+                      <td><span class="status-pill status-secure">SECURE</span></td>
+                      <td>10 mins ago</td>
+                    </tr>
+                    <tr>
+                      <td><i class="fa-solid fa-lock text-muted"></i> Vault Session Unlocked</td>
+                      <td><code>127.0.0.1 (local)</code></td>
+                      <td><span class="status-pill status-info">INFO</span></td>
+                      <td>Today, 16:30</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- SECURE NOTES VIEW -->
+          <section id="view-notes" class="tab-view">
+            <div class="section-title-header">
+              <div>
+                <h2>Secure Notes</h2>
+                <p class="subtitle-text" id="notes-subtitle-count">End-to-end encrypted entries</p>
+              </div>
+
+              <div class="category-pills-bar" id="notes-tag-pills-bar">
+                <button class="cat-pill active" onclick="filterNotesTag('All', this)">All</button>
+              </div>
+
+              <button class="btn-add-new" onclick="openAddNoteModal()">
+                <i class="fa-solid fa-plus"></i> New Note
+              </button>
+            </div>
+
+            <div id="notes-grid" class="notes-cards-grid"></div>
+          </section>
+
+          <!-- VAULT HEALTH AUDIT VIEW -->
+          <section id="view-health" class="tab-view">
+            <div class="section-title-header">
+              <div>
+                <h2>Vault Health Audit</h2>
+                <p class="subtitle-text">Security analysis and vulnerability detection</p>
+              </div>
+            </div>
+
+            <!-- HEALTH TOP DASHBOARD GRID -->
+            <div class="health-top-grid">
+              <!-- CIRCLE SCORE CARD -->
+              <div class="card card-padded health-score-card">
+                <div class="circle-gauge-container">
+                  <svg class="circle-gauge-svg" viewBox="0 0 120 120">
+                    <circle class="gauge-bg" cx="60" cy="60" r="50"></circle>
+                    <circle class="gauge-fill" id="health-gauge-fill" cx="60" cy="60" r="50" stroke-dasharray="314" stroke-dashoffset="150"></circle>
+                  </svg>
+                  <div class="gauge-text-center">
+                    <span class="gauge-val-pct" id="health-score-pct">85%</span>
+                    <span class="gauge-val-label" id="health-score-label">Good</span>
+                  </div>
+                </div>
+                <h3 class="mt-3">Overall Health Score</h3>
+                <p class="subtitle-text text-center mt-1" id="health-summary-text">Security Audit complete.</p>
+              </div>
+
+              <!-- HEALTH STATS TILES -->
+              <div class="health-stats-tiles">
+                <div class="stat-tile">
+                  <div class="stat-tile-header"><i class="fa-solid fa-key text-accent"></i> <span class="stat-tile-tag">Total</span></div>
+                  <div class="stat-tile-val" id="health-stat-total">0</div>
+                  <div class="stat-tile-desc">Passwords tracked</div>
+                </div>
+                <div class="stat-tile tile-danger">
+                  <div class="stat-tile-header"><i class="fa-solid fa-triangle-exclamation text-danger"></i> <span class="stat-tile-tag tag-danger">Critical</span></div>
+                  <div class="stat-tile-val text-danger" id="health-stat-weak">0</div>
+                  <div class="stat-tile-desc">Weak Passwords</div>
+                </div>
+                <div class="stat-tile tile-warn">
+                  <div class="stat-tile-header"><i class="fa-solid fa-copy text-warn"></i> <span class="stat-tile-tag tag-warn">Medium</span></div>
+                  <div class="stat-tile-val text-warn" id="health-stat-reused">0</div>
+                  <div class="stat-tile-desc">Reused Groups</div>
+                </div>
+                <div class="stat-tile">
+                  <div class="stat-tile-header"><i class="fa-solid fa-clock-rotate-left text-muted"></i> <span class="stat-tile-tag">Review</span></div>
+                  <div class="stat-tile-val" id="health-stat-expired">0</div>
+                  <div class="stat-tile-desc">Expired 90d+</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- HEALTH LOWER LISTS SPLIT GRID -->
+            <div class="health-split-grid mt-6">
+              <div class="card card-padded">
+                <div class="card-title-row mb-4">
+                  <h3>Reused Passwords</h3>
+                  <span class="badge badge-warn">AT RISK</span>
+                </div>
+                <div id="health-reused-list"></div>
+              </div>
+
+              <div class="card card-padded">
+                <div class="card-title-row mb-4">
+                  <h3>Weak Passwords</h3>
+                  <span class="badge badge-danger">CRITICAL</span>
+                </div>
+                <div id="health-weak-list"></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ADVANCED GENERATOR VIEW (MATCHING IMAGE 5) -->
+          <section id="view-generator" class="tab-view">
+            <div class="section-title-header">
+              <div>
+                <h2>Advanced Generator</h2>
+                <p class="subtitle-text">Leveraging local ML models to generate high-entropy, memorable, and structurally unique security strings.</p>
+              </div>
+            </div>
+
+            <!-- TOP GENERATED OUTPUT CARD -->
+            <div class="card card-padded mb-6">
+              <div class="card-title-row mb-3">
+                <span class="text-accent font-semibold">Generated Security String</span>
+                <span class="badge badge-accent"><i class="fa-solid fa-bolt"></i> High Entropy Mode</span>
+              </div>
+
+              <div class="generator-output-banner">
+                <span id="gen-output-text" class="mono-output">$vz2KXfyUbS2t4B&gV%jFa%&</span>
+                <div class="output-actions">
+                  <button class="btn-icon-lg" onclick="copyGeneratedPassword()" title="Copy"><i class="fa-regular fa-copy"></i></button>
+                  <button class="btn-icon-lg" onclick="generateSmartPassword()" title="Regenerate"><i class="fa-solid fa-arrows-rotate"></i></button>
+                </div>
+              </div>
+
+              <div class="metrics-bar mt-4">
+                <div class="metric-item">
+                  <span class="metric-label">Complexity:</span>
+                  <span class="metric-val text-accent">Robust</span>
+                  <div class="metric-track"><div class="metric-fill fill-accent" style="width: 90%;"></div></div>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Entropy:</span>
+                  <span class="metric-val text-accent">128 Bits</span>
+                  <div class="metric-track"><div class="metric-fill fill-accent" style="width: 85%;"></div></div>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Memorable:</span>
+                  <span class="metric-val text-warn">Moderate</span>
+                  <div class="metric-track"><div class="metric-fill fill-warn" style="width: 60%;"></div></div>
+                </div>
+                <div class="metric-item">
+                  <span class="metric-label">Status:</span>
+                  <span class="metric-val text-accent">Non-Leaked</span>
+                  <div class="metric-track"><div class="metric-fill fill-accent" style="width: 100%;"></div></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- PARAMETERS & NEURAL CONTEXT SPLIT GRID -->
+            <div class="generator-split-grid">
+              <!-- PARAMETERS CARD -->
+              <div class="card card-padded">
+                <div class="card-title-row mb-4">
+                  <h3><i class="fa-solid fa-sliders text-accent"></i> Parameters</h3>
+                </div>
+
+                <div class="slider-block mb-6">
+                  <div class="slider-title-row">
+                    <span>String Length</span>
+                    <span class="length-number-badge" id="gen-length-val">24</span>
+                  </div>
+                  <input type="range" id="gen-length" min="8" max="64" value="24" oninput="document.getElementById('gen-length-val').innerText = this.value">
+                  <div class="slider-ticks-row">
+                    <span>MIN: 8</span>
+                    <span>OPTIMAL: 32</span>
+                    <span>MAX: 128</span>
+                  </div>
+                </div>
+
+                <div class="options-2x2-grid mb-6">
+                  <label class="option-tile">
+                    <div class="option-text">
+                      <div class="option-name">Uppercase (A-Z)</div>
+                      <div class="option-sub">Include capital letters</div>
+                    </div>
+                    <input type="checkbox" id="gen-upper" checked>
+                    <span class="tile-switch"></span>
+                  </label>
+
+                  <label class="option-tile">
+                    <div class="option-text">
+                      <div class="option-name">Numbers (0-9)</div>
+                      <div class="option-sub">Include digits</div>
+                    </div>
+                    <input type="checkbox" id="gen-numbers" checked>
+                    <span class="tile-switch"></span>
+                  </label>
+
+                  <label class="option-tile">
+                    <div class="option-text">
+                      <div class="option-name">Symbols (!@#$)</div>
+                      <div class="option-sub">Include special characters</div>
+                    </div>
+                    <input type="checkbox" id="gen-symbols" checked>
+                    <span class="tile-switch"></span>
+                  </label>
+
+                  <label class="option-tile">
+                    <div class="option-text">
+                      <div class="option-name">Avoid Ambiguous</div>
+                      <div class="option-sub">Exclude {l, 1, O, 0}</div>
+                    </div>
+                    <input type="checkbox" id="gen-ambiguous">
+                    <span class="tile-switch"></span>
+                  </label>
+                </div>
+
+                <div class="generator-actions-row">
+                  <button class="btn-primary flex-1 btn-lg" onclick="generateSmartPassword()">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Smart ML Generate
+                  </button>
+                  <button class="btn-outline flex-1 btn-lg" onclick="generateStandardPassword()">
+                    Standard Generate
+                  </button>
+                </div>
+              </div>
+
+              <!-- NEURAL CONTEXT (ML PROFILING) CARD -->
+              <div class="card card-padded">
+                <div class="card-title-row mb-3">
+                  <h3><i class="fa-solid fa-brain text-accent"></i> Neural Context</h3>
+                </div>
+                <p class="subtitle-text mb-4">Input personal keys to train the local ML on memorable pattern recognition for your specific context.</p>
+
+                <div class="form-group mb-4">
+                  <label>Alias or Names</label>
+                  <input type="text" id="neural-input-name" placeholder="e.g. Maverick, Shadow" onchange="syncMlNeuralContext()">
+                </div>
+
+                <div class="form-group mb-4">
+                  <label>Memorable Terms</label>
+                  <input type="text" id="neural-input-words" placeholder="e.g. Rover, Paris" onchange="syncMlNeuralContext()">
+                </div>
+
+                <div class="info-alert-box">
+                  <i class="fa-solid fa-circle-info text-accent"></i>
+                  <span>This data never leaves your device. It is used purely as a seed for the generative neural network running locally.</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- SETTINGS VIEW (MATCHING IMAGE 2) -->
+          <section id="view-settings" class="tab-view">
+            <div class="section-title-header">
+              <div>
+                <h2>Vault Configuration</h2>
+                <p class="subtitle-text">Manage your local encryption parameters and security protocols.</p>
+              </div>
+            </div>
+
+            <div class="settings-grid-layout">
+              <!-- GENERAL CARD -->
+              <div class="card card-padded">
+                <div class="card-title-row mb-4">
+                  <h3><i class="fa-solid fa-sliders text-accent"></i> General</h3>
+                </div>
+
+                <div class="slider-block mb-6">
+                  <div class="slider-title-row">
+                    <span>Auto-lock Timer</span>
+                    <span class="length-number-badge" id="setting-autolock-badge">15 mins</span>
+                  </div>
+                  <input type="range" id="setting-autolock-slider" min="1" max="60" value="15" oninput="document.getElementById('setting-autolock-badge').innerText = this.value + ' mins'">
+                  <p class="field-hint mt-2">Locks the vault after a period of inactivity.</p>
+                </div>
+
+                <div class="theme-selector-block">
+                  <label class="form-label-bold mb-2">Interface Theme</label>
+                  <div class="theme-pills">
+                    <button class="theme-pill active">Obsidian</button>
+                    <button class="theme-pill" onclick="showToast('Theme set to Midnight')">Midnight</button>
+                    <button class="theme-pill" onclick="showToast('Theme set to Titanium')">Titanium</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SYSTEM & STARTUP CARD -->
+              <div class="card card-padded">
+                <div class="card-title-row mb-4">
+                  <h3><i class="fa-solid fa-rocket text-accent"></i> System & Startup</h3>
+                </div>
+
+                <div class="setting-toggle-row">
+                  <div>
+                    <div class="font-semibold">Launch at Startup</div>
+                    <div class="subtitle-text">Automatically launch Valtr when logging into Windows</div>
+                  </div>
+                  <label class="tile-switch-wrapper">
+                    <input type="checkbox" id="setting-launch-startup" onchange="toggleLaunchAtStartup(this)">
+                    <span class="tile-switch"></span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- SECURITY PROTOCOLS CARD -->
+              <div class="card card-padded grid-span-full">
+                <div class="card-title-row mb-4">
+                  <h3><i class="fa-solid fa-shield-halved text-danger"></i> Security Protocols</h3>
+                  <span class="badge badge-danger">CRITICAL</span>
+                </div>
+
+                <div class="security-items-row">
+                  <div class="sec-item">
+                    <div class="font-semibold mb-1">Master Password</div>
+                    <p class="subtitle-text mb-3">Update the primary key used to decrypt your database. Ensure it is high entropy.</p>
+                    <button class="btn-outline text-accent" onclick="openChangeMasterModal()">
+                      <i class="fa-solid fa-key"></i> Change Password
+                    </button>
+                  </div>
+
+                  <div class="sec-item">
+                    <div class="font-semibold mb-1">Global Hotkey</div>
+                    <p class="subtitle-text mb-3">Press shortcut to summon search overlay & AutoFill.</p>
+                    <div class="hotkey-recorder-box">
+                      <input type="text" class="hotkey-input-styled" id="setting-hotkey" value="ctrl+shift+l" readonly onclick="startHotkeyRecording()" title="Click to record key combination">
+                      <button type="button" id="btn-record-hotkey" class="btn-outline text-accent" onclick="startHotkeyRecording()">
+                        <i class="fa-solid fa-keyboard"></i> Record Hotkey
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="sec-item">
+                    <div class="font-semibold mb-1">Data Management</div>
+                    <p class="subtitle-text mb-3">Export or import encrypted CSV datasets.</p>
+                    <div class="btn-group">
+                      <button class="btn-outline" onclick="exportVaultCSV()"><i class="fa-solid fa-download"></i> Export CSV</button>
+                      <button class="btn-outline" onclick="openImportModal()"><i class="fa-solid fa-upload"></i> Import CSV</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- TAGS & CATEGORIES MANAGEMENT CARD -->
+              <div class="card card-padded grid-span-full">
+                <div class="card-title-row mb-3">
+                  <h3><i class="fa-solid fa-tags text-accent"></i> Vault & Note Tags Manager</h3>
+                  <span class="badge badge-accent">CRUD OPERATIONS</span>
+                </div>
+                <p class="subtitle-text mb-4">Manage global tags used for categorizing passwords, secure notes, and search filtering.</p>
+
+                <div class="tag-manager-row mb-4">
+                  <div class="tag-manager-input-box" style="display: flex; gap: 10px; max-width: 480px;">
+                    <input type="text" id="setting-new-tag-input" placeholder="Enter new tag name (e.g. Gaming, Work)">
+                    <button type="button" class="btn-primary" onclick="handleCreateTagSubmit()">
+                      <i class="fa-solid fa-plus"></i> Add Tag
+                    </button>
+                  </div>
+                </div>
+
+                <div id="settings-tags-list" class="settings-tags-list" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+              </div>
+
+              <!-- DANGER ZONE CARD -->
+              <div class="card card-padded grid-span-full border-danger">
+                <div class="card-title-row mb-4">
+                  <h3 class="text-danger"><i class="fa-solid fa-triangle-exclamation"></i> Danger Zone</h3>
+                </div>
+                <div class="danger-actions-row">
+                  <p class="subtitle-text">Permanently wipe all database records, credentials, notes, and keys.</p>
+                  <button class="btn-danger" onclick="openResetVaultModal()"><i class="fa-solid fa-trash"></i> Reset Entire Vault</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <!-- FOOTER STATUS BAR -->
+        <footer class="bottom-status-bar">
+          <div class="status-left">
+            <span class="status-dot"></span> LOCAL SYNC: <strong>ACTIVE</strong>
+            <span class="divider">|</span> ENCRYPTION: <strong>AES-256-GCM</strong>
+          </div>
+          <div class="status-right">
+            <span>UPTIME: 99.99%</span>
+            <span class="divider">|</span> SESSION: <strong>ACTIVE</strong>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <!-- MODALS -->
+    <!-- ADD/EDIT PASSWORD MODAL -->
+    <div id="modal-password" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="modal-pw-title">New Password Entry</h3>
+          <button class="btn-icon" onclick="closeModal('modal-password')"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form onsubmit="handleSavePasswordSubmit(event)">
+          <input type="hidden" id="modal-pw-id">
+          <div class="form-group">
+            <label>Domain / Website</label>
+            <input type="text" id="modal-pw-domain" placeholder="e.g. google.com" required>
+          </div>
+          <div class="form-group">
+            <label>Username / Email</label>
+            <input type="text" id="modal-pw-username" placeholder="e.g. user@example.com" required>
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <div class="input-password-wrapper">
+              <input type="password" id="modal-pw-password" required>
+              <button type="button" class="btn-icon" onclick="togglePasswordVisibility('modal-pw-password')"><i class="fa-solid fa-eye"></i></button>
+              <button type="button" class="btn-secondary" onclick="fillModalGeneratedPassword()"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="modal-pw-category"></select>
+          </div>
+          <div class="form-group">
+            <label>Link Existing Note</label>
+            <select id="modal-pw-note-link">
+              <option value="">— None —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Quick Note <span class="text-dim" style="font-weight:400;font-size:11px;">(creates & links a new note)</span></label>
+            <textarea id="modal-pw-quick-note" rows="3" placeholder="Optional — add a note for this entry..."></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn-outline" onclick="closeModal('modal-password')">Cancel</button>
+            <button type="submit" class="btn-primary">Save Entry</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ADD/EDIT NOTE MODAL -->
+    <div id="modal-note" class="modal-backdrop">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="modal-note-title">New Secure Note</h3>
+          <button class="btn-icon" onclick="closeModal('modal-note')"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <form onsubmit="handleSaveNoteSubmit(event)">
+          <input type="hidden" id="modal-note-id">
+          <div class="form-group">
+            <label>Title</label>
+            <input type="text" id="modal-note-input-title" placeholder="e.g. Server Backup Keys" required>
+          </div>
+          <div class="form-group">
+            <label>Secure Content</label>
+            <textarea id="modal-note-input-content" rows="5" placeholder="Enter sensitive notes, codes, keys..." required></textarea>
+          </div>
+          <div class="form-group">
+            <label>Tags (comma-separated)</label>
+            <input type="text" id="modal-note-input-tags" placeholder="e.g. Work, Keys, Urgent">
+          </div>
+          <div class="setting-toggle-row mt-3 mb-2">
+            <div>
+              <div class="font-semibold">Hide Content by Default</div>
+              <div class="subtitle-text">Mask content on card until reveal is clicked</div>
+            </div>
+            <label class="tile-switch-wrapper">
+              <input type="checkbox" id="modal-note-input-hidden" checked>
+              <span class="tile-switch"></span>
+            </label>
+          </div>
+          <div class="modal-actions mt-4">
+            <button type="button" class="btn-outline" onclick="closeModal('modal-note')">Cancel</button>
+            <button type="submit" class="btn-primary">Save Note</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- TOAST NOTIFICATIONS -->
+    <div id="toast-container"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

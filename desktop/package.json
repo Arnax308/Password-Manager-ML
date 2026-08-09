@@ -1,0 +1,12 @@
+{
+  "name": "valtr-desktop",
+  "version": "1.0.0",
+  "description": "Valtr - ML Powered Password Manager",
+  "main": "electron_main.js",
+  "scripts": {
+    "start": "electron electron_main.js"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1"
+  }
+}

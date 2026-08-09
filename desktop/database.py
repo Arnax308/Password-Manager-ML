@@ -189,16 +189,49 @@ def get_categories():
     return [r[0] for r in rows]
 
 def rename_category_in_db(old_name: str, new_name: str):
+    rename_tag_in_db(old_name, new_name)
+
+def delete_category_in_db(name: str):
+    delete_tag_in_db(name)
+
+def rename_tag_in_db(old_name: str, new_name: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('UPDATE passwords SET category = ? WHERE category = ?', (new_name, old_name))
+    cursor.execute('SELECT id, tags FROM notes')
+    rows = cursor.fetchall()
+    for n_id, tags_json in rows:
+        try:
+            tags = json.loads(tags_json) if tags_json else []
+            updated = False
+            new_tags = []
+            for t in tags:
+                if t.lower() == old_name.lower():
+                    new_tags.append(new_name)
+                    updated = True
+                else:
+                    new_tags.append(t)
+            if updated:
+                cursor.execute('UPDATE notes SET tags = ? WHERE id = ?', (json.dumps(new_tags), n_id))
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 
-def delete_category_in_db(name: str):
+def delete_tag_in_db(name: str):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute('UPDATE passwords SET category = NULL WHERE category = ?', (name,))
+    cursor.execute('SELECT id, tags FROM notes')
+    rows = cursor.fetchall()
+    for n_id, tags_json in rows:
+        try:
+            tags = json.loads(tags_json) if tags_json else []
+            new_tags = [t for t in tags if t.lower() != name.lower()]
+            if len(new_tags) != len(tags):
+                cursor.execute('UPDATE notes SET tags = ? WHERE id = ?', (json.dumps(new_tags), n_id))
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 

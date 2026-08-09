@@ -1,0 +1,1139 @@
+const API_BASE = 'http://127.0.0.1:5000';
+let currentMasterPassword = '';
+let currentCategoryFilter = 'All';
+let cachedPasswords = [];
+
+let ipcRenderer = null;
+try {
+  if (typeof require !== 'undefined') {
+    ipcRenderer = require('electron').ipcRenderer;
+  }
+} catch (e) {}
+
+// TOAST NOTIFICATIONS
+function showToast(message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  const iconClass = type === 'success' ? 'fa-circle-check text-accent' : (type === 'warn' ? 'fa-triangle-exclamation text-warn' : 'fa-circle-exclamation text-danger');
+  toast.innerHTML = `<i class="fa-solid ${iconClass}"></i> <span>${message}</span>`;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+}
+
+function togglePasswordVisibility(inputId) {
+  const input = document.getElementById(inputId);
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+// APP INITIALIZATION
+document.addEventListener('DOMContentLoaded', () => {
+  setupNavigation();
+  checkAppStatus();
+});
+
+// NAVIGATION
+function setupNavigation() {
+  const navBtns = document.querySelectorAll('.nav-item[data-tab]');
+  navBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.getAttribute('data-tab');
+      switchTab(tabName);
+    });
+  });
+}
+
+function switchTab(tabName) {
+  document.querySelectorAll('.nav-item[data-tab]').forEach(b => b.classList.remove('active'));
+  const activeBtn = document.querySelector(`.nav-item[data-tab="${tabName}"]`);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  document.querySelectorAll('.tab-view').forEach(v => v.classList.remove('active'));
+  const activeView = document.getElementById(`view-${tabName}`);
+  if (activeView) activeView.classList.add('active');
+
+  // Load view data
+  if (tabName === 'vault') loadVaultData();
+  else if (tabName === 'notes') loadNotesData();
+  else if (tabName === 'health') loadHealthData();
+  else if (tabName === 'ml' || tabName === 'generator') loadMlSettings();
+  else if (tabName === 'settings') loadSettingsData();
+}
+
+function refreshCurrentView() {
+  const activeView = document.querySelector('.tab-view.active');
+  if (activeView) {
+    const tabName = activeView.id.replace('view-', '');
+    switchTab(tabName);
+    showToast('View refreshed.');
+  }
+}
+
+// APP STATUS & AUTH
+async function checkAppStatus() {
+  try {
+    const res = await fetch(`${API_BASE}/api/status`);
+    if (!res.ok) throw new Error('Backend connecting...');
+    const status = await res.json();
+
+    const authScreen = document.getElementById('auth-screen');
+    const mainApp = document.getElementById('main-app');
+    const groupSetup = document.getElementById('group-setup-name');
+    const submitBtnText = document.getElementById('btn-auth-text');
+
+    authScreen.classList.add('active');
+    mainApp.classList.remove('active');
+
+    if (status.is_setup) {
+      groupSetup.style.display = 'none';
+      submitBtnText.innerText = 'Unlock Vault';
+    } else {
+      groupSetup.style.display = 'flex';
+      submitBtnText.innerText = 'Setup Master Vault';
+    }
+  } catch (err) {
+    document.getElementById('auth-error').innerText = 'Connecting to security backend...';
+    setTimeout(checkAppStatus, 1500);
+  }
+}
+
+async function handleAuthSubmit(event) {
+  event.preventDefault();
+  const password = document.getElementById('input-master-password').value;
+  const nameInput = document.getElementById('input-setup-name').value;
+  const errorDiv = document.getElementById('auth-error');
+  errorDiv.innerText = '';
+
+  try {
+    const statusRes = await fetch(`${API_BASE}/api/status`);
+    const status = await statusRes.json();
+
+    let endpoint = '/api/unlock';
+    let body = { master_password: password };
+
+    if (!status.is_setup) {
+      endpoint = '/api/setup';
+      body = { master_password: password, user_name: nameInput };
+    }
+
+    const res = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      currentMasterPassword = password;
+      document.getElementById('auth-screen').classList.remove('active');
+      document.getElementById('main-app').classList.add('active');
+      switchTab('vault');
+      showToast('Vault unlocked successfully!');
+    } else {
+      errorDiv.innerText = data.detail || 'Incorrect Master Password';
+    }
+  } catch (err) {
+    errorDiv.innerText = 'Failed to connect to security backend.';
+  }
+}
+
+async function lockVault() {
+  await fetch(`${API_BASE}/api/lock`, { method: 'POST' });
+  currentMasterPassword = '';
+  document.getElementById('input-master-password').value = '';
+  checkAppStatus();
+  showToast('Vault locked.');
+}
+
+// VAULT VIEW (MATCHING IMAGE 4)
+async function loadVaultData() {
+  try {
+    const res = await fetch(`${API_BASE}/api/passwords`);
+    cachedPasswords = res.ok ? await res.json() : [];
+    renderVaultList(cachedPasswords);
+  } catch (err) {
+    console.error('Failed to load vault data:', err);
+  }
+}
+
+function handleVaultSearch() {
+  renderVaultList(cachedPasswords);
+}
+
+function handleGlobalHeaderSearch() {
+  const query = document.getElementById('global-header-search').value.toLowerCase().trim();
+  const activeView = document.querySelector('.tab-view.active');
+  if (activeView && activeView.id === 'view-vault') {
+    renderVaultList(cachedPasswords, query);
+  }
+}
+
+function filterVaultCategory(catName, btnElement) {
+  document.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
+  if (btnElement) btnElement.classList.add('active');
+  currentCategoryFilter = catName;
+  renderVaultList(cachedPasswords);
+}
+
+function renderVaultList(passwords, overrideQuery = null) {
+  const searchQuery = overrideQuery !== null ? overrideQuery : document.getElementById('global-header-search').value.toLowerCase().trim();
+
+  // Filter passwords
+  let filtered = passwords.filter(p => {
+    const matchesSearch = !searchQuery || 
+      p.domain.toLowerCase().includes(searchQuery) || 
+      p.username.toLowerCase().includes(searchQuery) ||
+      (p.category && p.category.toLowerCase().includes(searchQuery));
+    if (currentCategoryFilter === 'All') return matchesSearch;
+    if (currentCategoryFilter === 'Weak') return matchesSearch && (p.strength_score || 1.0) < 0.5;
+    if (currentCategoryFilter === 'Recent') return matchesSearch;
+    return matchesSearch && (p.category === currentCategoryFilter);
+  });
+
+  document.getElementById('vault-subtitle-count').innerText = `${passwords.length} secure entries stored locally.`;
+
+  // Group by Domain
+  const grouped = {};
+  filtered.forEach(p => {
+    if (!grouped[p.domain]) grouped[p.domain] = [];
+    grouped[p.domain].push(p);
+  });
+
+  const gridContainer = document.getElementById('vault-domain-grid');
+  gridContainer.innerHTML = '';
+
+  Object.entries(grouped).forEach(([domain, accounts]) => {
+    const avatarChar = domain ? domain[0].toUpperCase() : '?';
+    const avgScore = accounts.reduce((acc, curr) => acc + (curr.strength_score || 1.0), 0) / accounts.length;
+    const scorePct = Math.round(avgScore * 100);
+
+    let borderClass = 'border-accent';
+    let fillClass = 'fill-accent';
+    let textClass = 'text-accent';
+    if (scorePct < 50) {
+      borderClass = 'border-danger';
+      fillClass = 'fill-danger';
+      textClass = 'text-danger';
+    } else if (scorePct < 75) {
+      borderClass = 'border-warn';
+      fillClass = 'fill-warn';
+      textClass = 'text-warn';
+    }
+
+    const cardId = `domain-card-${domain.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const isMulti = accounts.length > 1;
+
+    // Build account rows HTML for ALL accounts
+    let accountRowsHtml = '';
+    accounts.forEach((acct, idx) => {
+      const acctScore = Math.round((acct.strength_score || 1.0) * 100);
+      let acctTextClass = 'text-accent';
+      if (acctScore < 50) acctTextClass = 'text-danger';
+      else if (acctScore < 75) acctTextClass = 'text-warn';
+      // Escape single quotes for inline JS
+      const safePw = acct.password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const safeUser = acct.username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const safeDomain = acct.domain.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      const safeCat = (acct.category || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      accountRowsHtml += `
+        <div class="vault-account-row">
+          <div class="vault-account-info">
+            <span class="vault-account-user"><i class="fa-regular fa-user"></i> ${acct.username}</span>
+            ${acct.category ? `<span class="badge-tag" style="font-size:9px; padding:1px 6px;">${acct.category}</span>` : ''}
+            <span class="vault-account-score ${acctTextClass}">${acctScore}%</span>
+          </div>
+          <div class="vault-account-actions">
+            <button class="btn-icon" onclick="event.stopPropagation(); copyToClipboard('${safePw}', 'Password copied!')" title="Copy Password"><i class="fa-regular fa-copy"></i></button>
+            <button class="btn-autofill-sm" onclick="event.stopPropagation(); autoTypeAccount('${safeUser}', '${safePw}')" title="AutoFill"><i class="fa-solid fa-bolt"></i></button>
+            <button class="btn-icon" onclick="event.stopPropagation(); openEditPasswordModalById(${acct.id})" title="Edit"><i class="fa-solid fa-pen"></i></button>
+            <button class="btn-icon text-danger" onclick="event.stopPropagation(); deletePasswordEntry(${acct.id})" title="Delete"><i class="fa-regular fa-trash-can"></i></button>
+          </div>
+        </div>`;
+    });
+
+    const domainCard = document.createElement('div');
+    domainCard.className = `vault-item-card ${borderClass}`;
+    domainCard.innerHTML = `
+      <div class="card-domain-header" onclick="toggleDomainAccounts('${cardId}')">
+        <div class="card-avatar">${avatarChar}</div>
+        <div class="card-domain-info">
+          <div class="card-domain-title">${domain}</div>
+          <div class="card-domain-sub">${accounts.length} account${accounts.length > 1 ? 's' : ''} linked</div>
+        </div>
+        ${isMulti ? '<i class="fa-solid fa-chevron-down domain-expand-icon" id="icon-' + cardId + '"></i>' : ''}
+      </div>
+      <div class="vault-accounts-list ${isMulti ? 'collapsed' : ''}" id="${cardId}">
+        ${accountRowsHtml}
+      </div>
+      <div class="strength-bar-block">
+        <div class="strength-label-row">
+          <span>Security Strength</span>
+          <span class="strength-pct-val ${textClass}">${scorePct}%</span>
+        </div>
+        <div class="strength-track">
+          <div class="strength-fill ${fillClass}" style="width: ${scorePct}%;"></div>
+        </div>
+      </div>`;
+
+    gridContainer.appendChild(domainCard);
+  });
+
+  // Add New Entry Card Tile
+  const addCard = document.createElement('div');
+  addCard.className = 'add-entry-card';
+  addCard.onclick = openAddPasswordModal;
+  addCard.innerHTML = `
+    <i class="fa-solid fa-plus" style="font-size: 24px;"></i>
+    <span style="font-size: 13px; font-weight: 600;">Add new entry</span>`;
+  gridContainer.appendChild(addCard);
+}
+
+function toggleDomainAccounts(cardId) {
+  const list = document.getElementById(cardId);
+  const icon = document.getElementById('icon-' + cardId);
+  if (list) {
+    list.classList.toggle('collapsed');
+    if (icon) icon.classList.toggle('rotated');
+  }
+}
+
+async function deletePasswordEntry(id) {
+  if (!confirm('Permanently delete this password entry?')) return;
+  const res = await fetch(`${API_BASE}/api/passwords/${id}`, { method: 'DELETE' });
+  if (res.ok) {
+    loadVaultData();
+    showToast('Password entry deleted');
+  } else {
+    showToast('Failed to delete entry', 'error');
+  }
+}
+
+function copyToClipboard(text, msg = 'Copied to clipboard!') {
+  navigator.clipboard.writeText(text);
+  showToast(msg);
+}
+
+function openEditPasswordModalById(id) {
+  const acct = cachedPasswords.find(p => p.id == id);
+  if (acct) {
+    openEditPasswordModal(acct.id, acct.domain, acct.username, acct.password, acct.category || '', acct.note_id || null);
+  } else {
+    console.error('Account not found in cachedPasswords for id:', id);
+  }
+}
+
+function openEditNoteModalById(id) {
+  const note = cachedNotes.find(n => n.id == id);
+  if (note) {
+    openEditNoteModal(note.id, note.title, note.content, (note.tags || []).join(', '), note.is_hidden !== false);
+  } else {
+    console.error('Note not found in cachedNotes for id:', id);
+  }
+}
+
+// MODALS FOR PASSWORDS
+async function openAddPasswordModal() {
+  document.getElementById('modal-pw-title').innerText = 'New Password Entry';
+  document.getElementById('modal-pw-id').value = '';
+  document.getElementById('modal-pw-domain').value = '';
+  document.getElementById('modal-pw-username').value = '';
+  document.getElementById('modal-pw-password').value = '';
+  document.getElementById('modal-pw-quick-note').value = '';
+
+  const catRes = await fetch(`${API_BASE}/api/categories`);
+  const categories = catRes.ok ? await catRes.json() : [];
+  const select = document.getElementById('modal-pw-category');
+  select.innerHTML = '<option value="">Uncategorized</option>';
+  categories.forEach(c => select.innerHTML += `<option value="${c}">${c}</option>`);
+
+  await populateNoteLinkDropdown(null);
+
+  document.getElementById('modal-password').classList.add('active');
+}
+
+async function openEditPasswordModal(id, domain, username, password, category, noteId) {
+  document.getElementById('modal-pw-title').innerText = 'Edit Password Entry';
+  document.getElementById('modal-pw-id').value = id;
+  document.getElementById('modal-pw-domain').value = domain;
+  document.getElementById('modal-pw-username').value = username;
+  document.getElementById('modal-pw-password').value = password;
+  document.getElementById('modal-pw-quick-note').value = '';
+
+  const catRes = await fetch(`${API_BASE}/api/categories`);
+  const categories = catRes.ok ? await catRes.json() : [];
+  const select = document.getElementById('modal-pw-category');
+  select.innerHTML = '<option value="">Uncategorized</option>';
+  categories.forEach(c => {
+    const sel = c === category ? ' selected' : '';
+    select.innerHTML += `<option value="${c}"${sel}>${c}</option>`;
+  });
+
+  await populateNoteLinkDropdown(noteId || null);
+
+  // If entry has a linked note, fetch and prefill the note content so user can edit it
+  if (noteId) {
+    try {
+      const notesRes = await fetch(`${API_BASE}/api/notes`);
+      if (notesRes.ok) {
+        const allNotes = await notesRes.json();
+        const linkedNote = allNotes.find(n => n.id == noteId);
+        if (linkedNote) {
+          document.getElementById('modal-pw-quick-note').value = linkedNote.content || '';
+        }
+      }
+    } catch (e) {}
+  }
+
+  document.getElementById('modal-password').classList.add('active');
+}
+
+async function populateNoteLinkDropdown(selectedNoteId) {
+  const noteSelect = document.getElementById('modal-pw-note-link');
+  noteSelect.innerHTML = '<option value="">\u2014 None \u2014</option>';
+  try {
+    const res = await fetch(`${API_BASE}/api/notes`);
+    if (res.ok) {
+      const notes = await res.json();
+      notes.forEach(n => {
+        const sel = (selectedNoteId && n.id == selectedNoteId) ? ' selected' : '';
+        noteSelect.innerHTML += `<option value="${n.id}"${sel}>${n.title}</option>`;
+      });
+    }
+  } catch (e) {}
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.remove('active');
+}
+
+async function handleSavePasswordSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('modal-pw-id').value;
+  const domain = document.getElementById('modal-pw-domain').value.trim();
+  const username = document.getElementById('modal-pw-username').value.trim();
+  const password = document.getElementById('modal-pw-password').value;
+  const category = document.getElementById('modal-pw-category').value;
+  const quickNote = document.getElementById('modal-pw-quick-note').value.trim();
+  let noteId = document.getElementById('modal-pw-note-link').value || null;
+
+  if (noteId) noteId = parseInt(noteId, 10);
+
+  const passwordTags = ['notes'];
+  if (category) passwordTags.push(category.toLowerCase());
+
+  if (noteId) {
+    // Update existing linked note content & merge password entry tags
+    try {
+      const notesRes = await fetch(`${API_BASE}/api/notes`);
+      if (notesRes.ok) {
+        const allNotes = await notesRes.json();
+        const linkedNote = allNotes.find(n => n.id === noteId);
+        if (linkedNote) {
+          const currentTags = linkedNote.tags || [];
+          const mergedTags = Array.from(new Set([...currentTags, ...passwordTags]));
+          await fetch(`${API_BASE}/api/notes/${noteId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              title: linkedNote.title,
+              content: quickNote || linkedNote.content,
+              tags: mergedTags,
+              is_hidden: linkedNote.is_hidden !== false
+            })
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update linked note:', err);
+    }
+  } else if (quickNote) {
+    // Create a new note and link it with inherited password entry tags
+    try {
+      const noteTitle = `Note: ${domain} (${username})`;
+      const noteRes = await fetch(`${API_BASE}/api/notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: noteTitle, content: quickNote, tags: passwordTags, is_hidden: true })
+      });
+      if (noteRes.ok) {
+        const allNotesRes = await fetch(`${API_BASE}/api/notes`);
+        if (allNotesRes.ok) {
+          const allNotes = await allNotesRes.json();
+          const match = allNotes.find(n => n.title === noteTitle);
+          if (match) noteId = match.id;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to create quick note:', err);
+    }
+  }
+
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? `${API_BASE}/api/passwords/${id}` : `${API_BASE}/api/passwords`;
+
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ domain, username, password, category, note_id: noteId || null })
+  });
+
+  if (res.ok) {
+    closeModal('modal-password');
+    loadVaultData();
+    showToast(id ? 'Password entry updated!' : 'Password saved to vault!');
+  } else {
+    const errData = await res.json().catch(() => ({}));
+    showToast(errData.detail || 'Failed to save password', 'error');
+  }
+}
+
+// SECURE NOTES VIEW (MATCHING IMAGE 1)
+let cachedNotes = [];
+let currentNoteTagFilter = 'All';
+
+// SECURE NOTES VIEW (WITH TAG CRUD & HIDE/REVEAL TOGGLING)
+async function loadNotesData() {
+  try {
+    const res = await fetch(`${API_BASE}/api/notes`);
+    cachedNotes = res.ok ? await res.json() : [];
+    renderNotesGrid(cachedNotes);
+  } catch (err) {
+    console.error('Failed to load notes:', err);
+  }
+}
+
+function filterNotesTag(tagName, btnElement) {
+  document.querySelectorAll('#notes-tag-pills-bar .cat-pill').forEach(p => p.classList.remove('active'));
+  if (btnElement) btnElement.classList.add('active');
+  currentNoteTagFilter = tagName;
+  renderNotesGrid(cachedNotes);
+}
+
+function renderNotesGrid(notes) {
+  document.getElementById('notes-subtitle-count').innerText = `${notes.length} End-to-end encrypted entries`;
+
+  // Collect all unique tags across notes for the tag pills bar
+  const allTags = new Set();
+  notes.forEach(n => {
+    (n.tags || []).forEach(t => allTags.add(t.toUpperCase()));
+  });
+
+  // Render Tag Pills Bar
+  const tagPillsBar = document.getElementById('notes-tag-pills-bar');
+  if (tagPillsBar) {
+    let pillsHtml = `<button class="cat-pill ${currentNoteTagFilter === 'All' ? 'active' : ''}" onclick="filterNotesTag('All', this)">All</button>`;
+    allTags.forEach(tag => {
+      const activeClass = currentNoteTagFilter === tag ? 'active' : '';
+      pillsHtml += `<button class="cat-pill ${activeClass}" onclick="filterNotesTag('${tag}', this)">${tag}</button>`;
+    });
+    tagPillsBar.innerHTML = pillsHtml;
+  }
+
+  // Filter notes by current tag filter
+  const filteredNotes = notes.filter(n => {
+    if (currentNoteTagFilter === 'All') return true;
+    return (n.tags || []).map(t => t.toUpperCase()).includes(currentNoteTagFilter);
+  });
+
+  const grid = document.getElementById('notes-grid');
+  grid.innerHTML = '';
+
+  const tagColors = ['border-danger', 'border-accent', 'border-warn', 'border-muted'];
+
+  filteredNotes.forEach((note, idx) => {
+    const noteCard = document.createElement('div');
+    const borderClass = tagColors[idx % tagColors.length];
+    noteCard.className = `note-card ${borderClass}`;
+
+    const tagsArr = (note.tags && note.tags.length) ? note.tags : ['PERSONAL'];
+    const tagsHtml = tagsArr.map(t => `<span class="badge-tag tag-${t.toLowerCase()}" onclick="event.stopPropagation(); filterNotesTag('${t.toUpperCase()}', null)" title="Filter by tag ${t}">${t.toUpperCase()}</span>`).join(' ');
+    const safeContent = note.content.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+    const safeTags = tagsArr.join(', ').replace(/'/g, "\\'");
+    const isHidden = note.is_hidden !== false;
+
+    noteCard.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div class="note-tags-row">${tagsHtml}</div>
+        <i class="fa-solid fa-thumbtack text-dim" style="font-size: 12px;"></i>
+      </div>
+      <div class="note-card-title">${note.title}</div>
+      <div class="note-masked-box" id="note-content-box-${note.id}">
+        ${isHidden ? '\u2022\u2022\u2022\u2022\u2022 ENCRYPTED_AES_256' : safeContent.replace(/\\n/g, '<br>')}
+      </div>
+      <div class="note-card-footer">
+        <span>Updated recently</span>
+        <div>
+          <button class="btn-icon" onclick="event.stopPropagation(); toggleNoteContentReveal(${note.id})" title="${isHidden ? 'Reveal Content' : 'Mask Content'}">
+            <i class="fa-solid ${isHidden ? 'fa-eye' : 'fa-eye-slash'}" id="note-eye-icon-${note.id}"></i>
+          </button>
+          <button class="btn-icon" onclick="event.stopPropagation(); openEditNoteModalById(${note.id})" title="Edit Note"><i class="fa-solid fa-pen"></i></button>
+          <button class="btn-icon" onclick="event.stopPropagation(); copyToClipboard('${safeContent}', 'Note copied!')" title="Copy Content"><i class="fa-regular fa-copy"></i></button>
+          <button class="btn-icon text-danger" onclick="event.stopPropagation(); deleteNote(${note.id})" title="Delete Note"><i class="fa-regular fa-trash-can"></i></button>
+        </div>
+      </div>`;
+
+    grid.appendChild(noteCard);
+  });
+
+  // Add Note Card Tile
+  const addCard = document.createElement('div');
+  addCard.className = 'add-entry-card';
+  addCard.onclick = openAddNoteModal;
+  addCard.innerHTML = `
+    <i class="fa-solid fa-plus" style="font-size: 24px;"></i>
+    <span style="font-size: 13px; font-weight: 600;">Add new note</span>`;
+  grid.appendChild(addCard);
+}
+
+function toggleNoteContentReveal(noteId) {
+  const note = cachedNotes.find(n => n.id === noteId);
+  if (!note) return;
+
+  const box = document.getElementById(`note-content-box-${noteId}`);
+  const icon = document.getElementById(`note-eye-icon-${noteId}`);
+
+  if (box) {
+    const isCurrentlyMasked = box.innerText.includes('ENCRYPTED_AES_256');
+    if (isCurrentlyMasked) {
+      box.innerHTML = note.content.replace(/\n/g, '<br>');
+      if (icon) icon.className = 'fa-solid fa-eye-slash';
+    } else {
+      box.innerText = '\u2022\u2022\u2022\u2022\u2022 ENCRYPTED_AES_256';
+      if (icon) icon.className = 'fa-solid fa-eye';
+    }
+  }
+}
+
+function openEditNoteModal(id, title, content, tags, isHidden = true) {
+  document.getElementById('modal-note-title').innerText = 'Edit Secure Note';
+  document.getElementById('modal-note-id').value = id;
+  document.getElementById('modal-note-input-title').value = title;
+  document.getElementById('modal-note-input-content').value = content.replace(/\\n/g, '\n');
+  document.getElementById('modal-note-input-tags').value = tags;
+  document.getElementById('modal-note-input-hidden').checked = isHidden !== false;
+  document.getElementById('modal-note').classList.add('active');
+}
+
+function openAddNoteModal() {
+  document.getElementById('modal-note-title').innerText = 'New Secure Note';
+  document.getElementById('modal-note-id').value = '';
+  document.getElementById('modal-note-input-title').value = '';
+  document.getElementById('modal-note-input-content').value = '';
+  document.getElementById('modal-note-input-tags').value = '';
+  document.getElementById('modal-note-input-hidden').checked = true;
+  document.getElementById('modal-note').classList.add('active');
+}
+
+async function handleSaveNoteSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('modal-note-id').value;
+  const title = document.getElementById('modal-note-input-title').value.trim();
+  const content = document.getElementById('modal-note-input-content').value;
+  const tagsRaw = document.getElementById('modal-note-input-tags').value;
+  const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean);
+  const is_hidden = document.getElementById('modal-note-input-hidden').checked;
+
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? `${API_BASE}/api/notes/${id}` : `${API_BASE}/api/notes`;
+
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, content, tags, is_hidden })
+  });
+
+  if (res.ok) {
+    closeModal('modal-note');
+    loadNotesData();
+    showToast(id ? 'Note updated!' : 'Secure Note Saved!');
+  } else {
+    const err = await res.json().catch(() => ({}));
+    showToast(err.detail || 'Failed to save note', 'error');
+  }
+}
+
+async function deleteNote(id) {
+  if (!confirm('Permanently delete this note?')) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/notes/${id}`, { method: 'DELETE' });
+    if (res.ok) {
+      await loadNotesData();
+      showToast('Note deleted successfully!');
+    } else {
+      const err = await res.json().catch(() => ({}));
+      showToast(err.detail || 'Failed to delete note', 'error');
+    }
+  } catch (err) {
+    console.error('Failed to delete note:', err);
+    showToast('Failed to delete note', 'error');
+  }
+}
+
+// VAULT HEALTH AUDIT VIEW (MATCHING IMAGE 3)
+async function loadHealthData() {
+  try {
+    const res = await fetch(`${API_BASE}/api/passwords`);
+    const passwords = res.ok ? await res.json() : [];
+
+    const weak = passwords.filter(p => (p.strength_score || 1.0) < 0.5);
+    const pwCounts = {};
+    passwords.forEach(p => pwCounts[p.password] = (pwCounts[p.password] || 0) + 1);
+    const reused = passwords.filter(p => pwCounts[p.password] > 1);
+
+    const now = new Date();
+    const expired = passwords.filter(p => {
+      const created = new Date(p.created_at);
+      const ttlDays = p.ttl_days || 90;
+      return Math.floor((now - created) / (1000 * 60 * 60 * 24)) >= ttlDays;
+    });
+
+    const total = passwords.length;
+    const avgScore = total ? Math.round((passwords.reduce((acc, curr) => acc + (curr.strength_score || 1.0), 0) / total) * 100) : 100;
+
+    document.getElementById('health-score-pct').innerText = `${avgScore}%`;
+    document.getElementById('health-score-label').innerText = avgScore >= 80 ? 'Excellent' : (avgScore >= 50 ? 'Fair' : 'Critical');
+    document.getElementById('health-summary-text').innerText = `Security Audit complete. ${weak.length + reused.length} vulnerabilities found.`;
+
+    document.getElementById('health-stat-total').innerText = total;
+    document.getElementById('health-stat-weak').innerText = weak.length;
+    document.getElementById('health-stat-reused').innerText = reused.length;
+    document.getElementById('health-stat-expired').innerText = expired.length;
+
+    // Render Reused List
+    const reusedContainer = document.getElementById('health-reused-list');
+    reusedContainer.innerHTML = reused.map(r => `
+      <div class="account-row mb-2">
+        <div style="flex:1;">
+          <div class="font-semibold">${r.domain}</div>
+          <div class="subtitle-text">${r.username}</div>
+        </div>
+        <span class="text-warn font-semibold">0${pwCounts[r.password]}</span>
+        <button class="btn-outline text-accent" style="padding: 4px 10px; font-size: 11px;" onclick="openEditPasswordModalById(${r.id})">Update</button>
+      </div>`).join('') || '<p class="subtitle-text">No reused passwords detected.</p>';
+
+    // Render Weak List
+    const weakContainer = document.getElementById('health-weak-list');
+    weakContainer.innerHTML = weak.map(w => `
+      <div class="account-row mb-2">
+        <span style="color: var(--danger-color); font-size: 18px;">•</span>
+        <div style="flex:1;">
+          <div class="font-semibold">${w.domain}</div>
+          <div class="subtitle-text">${w.username}</div>
+        </div>
+        <button class="btn-primary" style="padding: 4px 12px; font-size: 11px;" onclick="openEditPasswordModalById(${w.id})">Fix Now</button>
+      </div>`).join('') || '<p class="subtitle-text text-accent"><i class="fa-solid fa-circle-check"></i> Great job! No weak passwords.</p>';
+  } catch (err) {
+    console.error('Failed to load health data:', err);
+  }
+}
+
+// GENERATOR VIEW (MATCHING IMAGE 5)
+function generateStandardPassword() {
+  const upper = document.getElementById('gen-upper').checked;
+  const lower = true; // Always include lowercase
+  const numbers = document.getElementById('gen-numbers').checked;
+  const symbols = document.getElementById('gen-symbols').checked;
+  const length = parseInt(document.getElementById('gen-length').value, 10);
+
+  let chars = 'abcdefghijklmnopqrstuvwxyz';
+  if (upper) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  if (numbers) chars += '0123456789';
+  if (symbols) chars += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+
+  let pwd = '';
+  for (let i = 0; i < length; i++) {
+    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  document.getElementById('gen-output-text').innerText = pwd;
+}
+
+async function generateSmartPassword() {
+  try {
+    const res = await fetch(`${API_BASE}/api/generate`);
+    if (res.ok) {
+      const data = await res.json();
+      document.getElementById('gen-output-text').innerText = data.generated_password;
+      showToast(`Smart ML Generated! Style Score: ${data.score.toFixed(2)}`);
+    } else {
+      generateStandardPassword();
+    }
+  } catch (err) {
+    generateStandardPassword();
+  }
+}
+
+function copyGeneratedPassword() {
+  const pwd = document.getElementById('gen-output-text').innerText;
+  if (!pwd) return;
+  copyToClipboard(pwd, 'Generated password copied!');
+}
+
+function fillModalGeneratedPassword() {
+  const pwd = document.getElementById('gen-output-text').innerText;
+  if (pwd) {
+    document.getElementById('modal-pw-password').value = pwd;
+  }
+}
+
+// ML SETTINGS (NEURAL CONTEXT)
+async function loadMlSettings() {
+  try {
+    const res = await fetch(`${API_BASE}/api/settings`);
+    if (res.ok) {
+      const s = await res.json();
+      document.getElementById('neural-input-name').value = s.user_name || '';
+      document.getElementById('neural-input-words').value = (s.familiar_words || []).join(', ');
+      document.getElementById('ml-input-name').value = s.user_name || '';
+      document.getElementById('ml-input-words').value = (s.familiar_words || []).join(', ');
+    }
+  } catch (err) {
+    console.error('Failed to load ML settings:', err);
+  }
+}
+
+async function syncMlNeuralContext() {
+  const name = document.getElementById('neural-input-name').value;
+  const words = document.getElementById('neural-input-words').value;
+  const familiarWords = words.split(',').map(w => w.trim()).filter(Boolean);
+
+  await fetch(`${API_BASE}/api/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_name: name, familiar_words: familiarWords })
+  });
+  showToast('Neural Context Updated');
+}
+
+// SETTINGS VIEW (MATCHING IMAGE 2)
+async function loadSettingsData() {
+  try {
+    const sRes = await fetch(`${API_BASE}/api/settings`);
+    if (sRes.ok) {
+      const s = await sRes.json();
+      document.getElementById('setting-autolock-slider').value = s.auto_lock_minutes || 15;
+      document.getElementById('setting-autolock-badge').innerText = `${s.auto_lock_minutes || 15} mins`;
+      document.getElementById('setting-hotkey').value = s.hotkey || 'ctrl+shift+l';
+    }
+
+    if (ipcRenderer) {
+      const openAtLogin = await ipcRenderer.invoke('get-startup-setting');
+      const startupToggle = document.getElementById('setting-launch-startup');
+      if (startupToggle) startupToggle.checked = Boolean(openAtLogin);
+    }
+
+    await loadSettingsTags();
+  } catch (err) {
+    console.error('Failed to load settings:', err);
+  }
+}
+
+async function loadSettingsTags() {
+  const container = document.getElementById('settings-tags-list');
+  if (!container) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tags`);
+    const tags = res.ok ? await res.json() : [];
+
+    if (tags.length === 0) {
+      container.innerHTML = '<span class="subtitle-text">No tags created yet.</span>';
+      return;
+    }
+
+    container.innerHTML = tags.map(tag => {
+      const safeTag = tag.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      return `
+        <div class="settings-tag-pill">
+          <span class="settings-tag-name">${tag}</span>
+          <button class="settings-tag-btn" onclick="handleRenameTag('${safeTag}')" title="Rename Tag"><i class="fa-solid fa-pen"></i></button>
+          <button class="settings-tag-btn text-danger" onclick="handleDeleteTag('${safeTag}')" title="Delete Tag"><i class="fa-solid fa-xmark"></i></button>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('Failed to load settings tags:', err);
+  }
+}
+
+async function handleCreateTagSubmit() {
+  const input = document.getElementById('setting-new-tag-input');
+  if (!input) return;
+  const name = input.value.trim();
+  if (!name) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    if (res.ok) {
+      input.value = '';
+      showToast(`Tag '${name}' created!`);
+      loadSettingsTags();
+      loadVaultData();
+      loadNotesData();
+    }
+  } catch (err) {
+    showToast('Failed to create tag', 'error');
+  }
+}
+
+async function handleRenameTag(oldName) {
+  const newName = prompt(`Rename tag '${oldName}' to:`, oldName);
+  if (!newName || newName.trim() === '' || newName.trim() === oldName) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tags/${encodeURIComponent(oldName)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_name: newName.trim() })
+    });
+    if (res.ok) {
+      showToast(`Tag renamed to '${newName.trim()}'`);
+      loadSettingsTags();
+      loadVaultData();
+      loadNotesData();
+    }
+  } catch (err) {
+    showToast('Failed to rename tag', 'error');
+  }
+}
+
+async function handleDeleteTag(tagName) {
+  if (!confirm(`Delete tag '${tagName}'? This will remove it from all entries.`)) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/api/tags/${encodeURIComponent(tagName)}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      showToast(`Tag '${tagName}' deleted`);
+      loadSettingsTags();
+      loadVaultData();
+      loadNotesData();
+    }
+  } catch (err) {
+    showToast('Failed to delete tag', 'error');
+  }
+}
+
+async function toggleLaunchAtStartup(checkbox) {
+  if (ipcRenderer) {
+    try {
+      const isEnabled = await ipcRenderer.invoke('set-startup-setting', checkbox.checked);
+      checkbox.checked = Boolean(isEnabled);
+      showToast(isEnabled ? 'Launch at startup enabled' : 'Launch at startup disabled');
+    } catch (err) {
+      console.error('Failed to update startup setting:', err);
+      showToast('Failed to update startup setting', 'warn');
+    }
+  } else {
+    showToast('Startup setting active in Desktop App');
+  }
+}
+
+async function exportVaultCSV() {
+  if (!currentMasterPassword) return;
+  const res = await fetch(`${API_BASE}/api/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ master_password: currentMasterPassword })
+  });
+
+  if (res.ok) {
+    const data = await res.json();
+    const blob = new Blob([data.csv_content], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'valtr_vault_export.csv';
+    a.click();
+    showToast('Vault exported to CSV');
+  }
+}
+
+// ── GLOBAL HOTKEY & RECORDING ──
+if (ipcRenderer) {
+  ipcRenderer.on('global-hotkey-pressed', () => {
+    handleHotkeyTrigger();
+  });
+}
+
+async function handleHotkeyTrigger() {
+  switchTab('vault');
+  const searchInput = document.getElementById('global-header-search');
+  if (searchInput) searchInput.focus();
+  
+  try {
+    const res = await fetch(`${API_BASE}/api/popup/trigger`);
+    if (res.ok) {
+      const data = await res.json();
+      let filterText = '';
+      if (data.browser_url) {
+        try {
+          const urlObj = new URL(data.browser_url);
+          filterText = urlObj.hostname.replace(/^www\./, '');
+        } catch (e) {
+          filterText = data.browser_url;
+        }
+      } else if (data.typed_user || data.typed_pass) {
+        filterText = data.typed_user || data.typed_pass;
+      }
+      
+      if (filterText && searchInput) {
+        searchInput.value = filterText;
+        handleGlobalHeaderSearch();
+        showToast(`AutoFill search active for '${filterText}'`);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to query hotkey trigger:', err);
+  }
+}
+
+async function autoTypeAccount(username, password) {
+  try {
+    const res = await fetch(`${API_BASE}/api/popup/autotype`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    if (res.ok) {
+      showToast(`Auto-typing credentials for ${username}...`);
+    } else {
+      showToast('AutoType request failed', 'warn');
+    }
+  } catch (err) {
+    showToast('AutoType request failed', 'warn');
+  }
+}
+
+let isRecordingHotkey = false;
+
+async function startHotkeyRecording() {
+  const input = document.getElementById('setting-hotkey');
+  const btn = document.getElementById('btn-record-hotkey');
+  if (!input || isRecordingHotkey) return;
+
+  isRecordingHotkey = true;
+  input.classList.add('recording');
+  input.value = 'Press key combination...';
+  if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-dot text-danger"></i> Recording...';
+
+  // Unregister Electron global shortcuts while recording so modifier key events aren't swallowed
+  if (ipcRenderer) {
+    try {
+      await ipcRenderer.invoke('set-global-hotkey', '__unregister_all__');
+    } catch (e) {}
+  }
+
+  const MODIFIER_CODES = {
+    'ControlLeft': 'ctrl', 'ControlRight': 'ctrl',
+    'ShiftLeft': 'shift', 'ShiftRight': 'shift',
+    'AltLeft': 'alt', 'AltRight': 'alt',
+    'MetaLeft': 'win', 'MetaRight': 'win'
+  };
+
+  function codeToName(code) {
+    if (MODIFIER_CODES[code]) return MODIFIER_CODES[code];
+    if (code.startsWith('Key')) return code.slice(3).toLowerCase();
+    if (code.startsWith('Digit')) return code.slice(5);
+    if (code.startsWith('Numpad')) return code.toLowerCase();
+    if (/^F\d+$/.test(code)) return code;
+    const specialMap = {
+      'Space': 'space', 'Tab': 'tab', 'Enter': 'enter',
+      'Backspace': 'backspace', 'Delete': 'delete', 'Escape': 'esc',
+      'ArrowUp': 'up', 'ArrowDown': 'down', 'ArrowLeft': 'left', 'ArrowRight': 'right',
+      'BracketLeft': '[', 'BracketRight': ']', 'Backslash': '\\',
+      'Semicolon': ';', 'Quote': "'", 'Comma': ',', 'Period': '.',
+      'Slash': '/', 'Minus': '-', 'Equal': '=', 'Backquote': '`'
+    };
+    if (code in specialMap) return specialMap[code];
+    return code.toLowerCase();
+  }
+
+  function stopRecording(combo) {
+    window.removeEventListener('keydown', onKeyDown, true);
+    input.classList.remove('recording');
+    isRecordingHotkey = false;
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-keyboard"></i> Record Hotkey';
+
+    if (combo) {
+      input.value = combo;
+      saveNewHotkey(combo);
+    } else {
+      loadSettingsData();
+    }
+  }
+
+  function onKeyDown(e) {
+    // If key event is targeted at another input field, cancel hotkey recording immediately
+    if (e.target && e.target.id !== 'setting-hotkey' && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+      stopRecording(null);
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Cancel recording on ESC
+    if (e.code === 'Escape') {
+      stopRecording(null);
+      return;
+    }
+
+    // Detect currently pressed modifiers
+    const mods = [];
+    if (e.ctrlKey) mods.push('ctrl');
+    if (e.altKey) mods.push('alt');
+    if (e.shiftKey) mods.push('shift');
+    if (e.metaKey) mods.push('win');
+
+    const keyName = codeToName(e.code);
+    const isModifier = MODIFIER_CODES[e.code] !== undefined;
+
+    if (isModifier) {
+      // Live preview of held modifiers
+      input.value = mods.length ? mods.join('+') + '+...' : 'Press key combination...';
+      return;
+    }
+
+    // A non-modifier key was pressed! Combine modifiers + key and finish immediately
+    if (keyName) {
+      const parts = [...mods];
+      if (!parts.includes(keyName)) {
+        parts.push(keyName);
+      }
+      const combo = parts.join('+');
+      stopRecording(combo);
+    }
+  }
+
+  window.addEventListener('keydown', onKeyDown, true);
+}
+
+async function saveNewHotkey(newHotkey) {
+  try {
+    const sRes = await fetch(`${API_BASE}/api/settings`);
+    let currentSettings = sRes.ok ? await sRes.json() : {};
+    currentSettings.hotkey = newHotkey;
+
+    await fetch(`${API_BASE}/api/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(currentSettings)
+    });
+
+    if (ipcRenderer) {
+      await ipcRenderer.invoke('set-global-hotkey', newHotkey);
+    }
+
+    showToast(`Global hotkey saved: ${newHotkey}`);
+  } catch (err) {
+    console.error('Failed to save hotkey:', err);
+    showToast('Failed to save hotkey', 'warn');
+  }
+}

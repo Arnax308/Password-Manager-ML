@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Valtr Quick Access</title>
+  <link rel="stylesheet" href="popup_styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+  <div id="popup-app">
+    <!-- HEADER -->
+    <div class="popup-header">
+      <div class="popup-brand">
+        <i class="fa-solid fa-lock popup-logo"></i>
+        <span class="popup-brand-name">Valtr</span>
+      </div>
+      <div class="popup-tabs">
+        <button class="popup-tab active" data-tab="search" onclick="switchPopupTab('search', this)">
+          <i class="fa-solid fa-magnifying-glass"></i> Vault
+        </button>
+        <button class="popup-tab" data-tab="create" onclick="switchPopupTab('create', this)">
+          <i class="fa-solid fa-plus"></i> New Entry
+        </button>
+        <button class="popup-tab" data-tab="generator" onclick="switchPopupTab('generator', this)">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
+        </button>
+      </div>
+      <button class="popup-close-btn" onclick="closePopup()" title="Close">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+
+    <!-- SEARCH TAB -->
+    <div id="popup-tab-search" class="popup-tab-content active">
+      <div class="popup-search-bar">
+        <i class="fa-solid fa-magnifying-glass popup-search-icon"></i>
+        <input type="text" id="popup-search-input" placeholder="Search entries or domains..." oninput="handlePopupSearch()" autofocus>
+      </div>
+
+      <div id="popup-results" class="popup-results">
+        <div class="popup-empty-state">
+          <i class="fa-solid fa-vault"></i>
+          <span>Type to search your vault</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- CREATE NEW ENTRY TAB -->
+    <div id="popup-tab-create" class="popup-tab-content">
+      <div class="popup-create-wrapper">
+        <div class="popup-create-header">
+          <h3>Create Vault Entry</h3>
+          <span class="popup-create-sub">Save credentials for active website</span>
+        </div>
+
+        <form id="popup-create-form" onsubmit="handlePopupCreateSubmit(event)">
+          <div class="popup-form-group">
+            <label>Website / Domain</label>
+            <input type="text" id="popup-create-domain" placeholder="e.g. github.com" required>
+          </div>
+          <div class="popup-form-group">
+            <label>Username / Email</label>
+            <input type="text" id="popup-create-username" placeholder="user@example.com" required>
+          </div>
+          <div class="popup-form-group">
+            <label>Password</label>
+            <div class="popup-input-btn-wrapper">
+              <input type="password" id="popup-create-password" placeholder="••••••••••••" required>
+              <button type="button" class="popup-btn-icon-styled" onclick="togglePopupCreatePasswordVisibility()" title="Show/Hide"><i class="fa-solid fa-eye" id="popup-create-eye-icon"></i></button>
+              <button type="button" class="popup-btn-accent-styled" onclick="fillPopupCreateGeneratedPassword()" title="Generate Smart Password"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+            </div>
+          </div>
+          <div class="popup-create-actions">
+            <button type="button" class="popup-btn-outline" onclick="switchPopupTab('search')">Cancel</button>
+            <button type="submit" class="popup-btn-primary">Save Entry <i class="fa-solid fa-check"></i></button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- GENERATOR TAB -->
+    <div id="popup-tab-generator" class="popup-tab-content">
+      <div class="popup-gen-output-card">
+        <div class="popup-gen-label">Generated Password</div>
+        <div class="popup-gen-output-row">
+          <span id="popup-gen-text" class="popup-gen-text">Click Generate</span>
+          <div class="popup-gen-actions">
+            <button class="popup-btn-icon" onclick="copyPopupGenerated()" title="Copy"><i class="fa-regular fa-copy"></i></button>
+            <button class="popup-btn-icon" onclick="popupGenerateSmart()" title="Regenerate"><i class="fa-solid fa-arrows-rotate"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="popup-gen-controls">
+        <div class="popup-gen-slider-row">
+          <span>Length</span>
+          <span class="popup-gen-length-badge" id="popup-gen-length-val">20</span>
+        </div>
+        <input type="range" id="popup-gen-length" min="8" max="64" value="20" class="popup-slider" oninput="document.getElementById('popup-gen-length-val').innerText = this.value">
+
+        <div class="popup-gen-options">
+          <label class="popup-option">
+            <span>A-Z</span>
+            <input type="checkbox" id="popup-gen-upper" checked>
+            <span class="popup-switch"></span>
+          </label>
+          <label class="popup-option">
+            <span>0-9</span>
+            <input type="checkbox" id="popup-gen-numbers" checked>
+            <span class="popup-switch"></span>
+          </label>
+          <label class="popup-option">
+            <span>!@#</span>
+            <input type="checkbox" id="popup-gen-symbols" checked>
+            <span class="popup-switch"></span>
+          </label>
+        </div>
+
+        <div class="popup-gen-buttons">
+          <button class="popup-btn-primary" onclick="popupGenerateSmart()">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Smart Generate
+          </button>
+          <button class="popup-btn-outline" onclick="popupGenerateStandard()">
+            Standard
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="popup-footer">
+      <span class="popup-footer-status"><span class="popup-status-dot"></span> AES-256 ENCRYPTED</span>
+      <span class="popup-footer-ver">v2.4.0</span>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="popup-toast-container"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

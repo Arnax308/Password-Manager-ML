@@ -650,56 +650,86 @@ def update_settings(req: SettingsUpdateRequest):
     database.save_config('fetch_favicons', "true" if req.fetch_favicons else "false")
     return {"message": "Settings updated"}
 
+DEFAULT_PRESET_TAGS = ["Work", "Personal", "Finance", "Social", "Entertainment", "Gaming", "Shopping", "Other"]
+
+def get_stored_tags() -> List[str]:
+    config_tags_str = database.get_config('all_tags')
+    if config_tags_str is None:
+        tags = list(DEFAULT_PRESET_TAGS)
+        database.save_config('all_tags', json.dumps(tags))
+        return tags
+    try:
+        return json.loads(config_tags_str)
+    except Exception:
+        return list(DEFAULT_PRESET_TAGS)
+
+def save_stored_tags(tags: List[str]):
+    database.save_config('all_tags', json.dumps(tags))
+
 @app.get("/api/categories")
-def get_categories():
-    """Return preset + user-created categories (from config + db)."""
-    presets = ["Work", "Personal", "Finance", "Social", "Entertainment", "Other"]
+@app.get("/api/tags")
+def get_categories_and_tags():
+    """Return all active tags, combining stored tag list + any tags currently used in DB."""
+    stored_tags = get_stored_tags()
     user_cats = database.get_categories()
-    config_cats_str = database.get_config('custom_categories')
-    config_cats = json.loads(config_cats_str) if config_cats_str else []
     
-    all_cats = list(presets)
-    for c in user_cats + config_cats:
-        if c not in all_cats:
-            all_cats.append(c)
-    return all_cats
+    all_tags = list(stored_tags)
+    for c in user_cats:
+        if c and c not in all_tags:
+            all_tags.append(c)
+    return all_tags
 
 @app.post("/api/categories")
-def create_category(req: CategoryRequest):
-    cat_name = req.name.strip()
-    config_cats_str = database.get_config('custom_categories')
-    config_cats = json.loads(config_cats_str) if config_cats_str else []
-    if cat_name not in config_cats:
-        config_cats.append(cat_name)
-        database.save_config('custom_categories', json.dumps(config_cats))
-    return cat_name
+@app.post("/api/tags")
+def create_category_or_tag(req: CategoryRequest):
+    tag_name = req.name.strip()
+    if not tag_name:
+        raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+    stored_tags = get_stored_tags()
+    if tag_name not in stored_tags:
+        stored_tags.append(tag_name)
+        save_stored_tags(stored_tags)
+    notify_update()
+    return tag_name
 
 @app.put("/api/categories/{old_name}")
-def rename_category(old_name: str, req: CategoryRenameRequest):
+@app.put("/api/tags/{old_name}")
+def rename_category_or_tag(old_name: str, req: CategoryRenameRequest):
     new_name = req.new_name.strip()
-    config_cats_str = database.get_config('custom_categories')
-    config_cats = json.loads(config_cats_str) if config_cats_str else []
-    if old_name in config_cats:
-        config_cats.remove(old_name)
-    if new_name not in config_cats:
-        config_cats.append(new_name)
-        database.save_config('custom_categories', json.dumps(config_cats))
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Tag name cannot be empty")
+
+    stored_tags = get_stored_tags()
+    updated_tags = []
+    for t in stored_tags:
+        if t.lower() == old_name.lower():
+            if new_name not in updated_tags:
+                updated_tags.append(new_name)
+        else:
+            if t not in updated_tags:
+                updated_tags.append(t)
+    save_stored_tags(updated_tags)
     
-    database.rename_category_in_db(old_name, new_name)
+    database.rename_tag_in_db(old_name, new_name)
     notify_update()
-    return {"message": "Category renamed"}
+    return {"message": "Tag renamed successfully"}
 
 @app.delete("/api/categories/{name}")
-def delete_category(name: str):
-    config_cats_str = database.get_config('custom_categories')
-    config_cats = json.loads(config_cats_str) if config_cats_str else []
-    if name in config_cats:
-        config_cats.remove(name)
-        database.save_config('custom_categories', json.dumps(config_cats))
+@app.delete("/api/tags/{name}")
+def delete_category_or_tag(name: str):
+    stored_tags = get_stored_tags()
+    updated_tags = [t for t in stored_tags if t.lower() != name.lower()]
+    save_stored_tags(updated_tags)
         
-    database.delete_category_in_db(name)
+    database.delete_tag_in_db(name)
     notify_update()
-    return {"message": "Category deleted"}
+    return {"message": "Tag deleted successfully"}
+
+def _ensure_notes_tag(tags: List[str]) -> List[str]:
+    res = list(tags)
+    if not any(t.lower() == 'notes' for t in res):
+        res.insert(0, 'notes')
+    return res
 
 @app.post("/api/notes")
 def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
@@ -708,11 +738,12 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
         raise HTTPException(status_code=409, detail="Note with this title already exists. Use update instead.")
         
     ciphertext, nonce = encryption.encrypt_data(req.content, key)
+    final_tags = _ensure_notes_tag(req.tags)
     
     database.add_note(
         req.title,
         base64.b64encode(ciphertext).decode('utf-8'),
-        json.dumps(req.tags),
+        json.dumps(final_tags),
         base64.b64encode(nonce).decode('utf-8'),
         req.is_hidden
     )
@@ -722,11 +753,12 @@ def save_note(req: NoteSaveRequest, key: bytes = Depends(require_auth)):
 @app.put("/api/notes/{item_id}")
 def update_note(item_id: int, req: NoteUpdateRequest, key: bytes = Depends(require_auth)):
     ciphertext, nonce = encryption.encrypt_data(req.content, key)
+    final_tags = _ensure_notes_tag(req.tags)
     database.update_note(
         n_id=item_id,
         title=req.title,
         enc_content=base64.b64encode(ciphertext).decode('utf-8'),
-        tags=json.dumps(req.tags),
+        tags=json.dumps(final_tags),
         nonce=base64.b64encode(nonce).decode('utf-8'),
         is_hidden=req.is_hidden
     )
@@ -757,6 +789,8 @@ def get_all_notes(key: bytes = Depends(require_auth)):
         except:
             pass
             
+        tags_list = _ensure_notes_tag(tags_list)
+
         results.append(NoteResponse(
             id=r["id"],
             title=r["title"],
@@ -767,6 +801,57 @@ def get_all_notes(key: bytes = Depends(require_auth)):
             updated_at=r["updated_at"]
         ))
     return results
+
+# ── POPUP & HOTKEY AUTOTYPE ENDPOINTS ──
+import popup
+
+_last_popup_trigger = {
+    "title": "",
+    "hwnd": 0,
+    "browser_url": "",
+    "typed_user": "",
+    "typed_pass": "",
+    "timestamp": 0
+}
+
+class PopupTriggerPayload(BaseModel):
+    title: Optional[str] = ""
+    hwnd: Optional[int] = 0
+    browser_url: Optional[str] = ""
+    typed_user: Optional[str] = ""
+    typed_pass: Optional[str] = ""
+    timestamp: Optional[float] = 0
+
+class AutoTypePayload(BaseModel):
+    username: str
+    password: str
+
+@app.on_event("startup")
+def startup_event():
+    try:
+        popup.start_popup_backend("ctrl+shift+l")
+    except Exception as e:
+        print(f"Warning: Could not start hotkey backend: {e}")
+
+@app.get("/api/popup/prepare")
+@app.post("/api/popup/prepare")
+def prepare_popup_context():
+    return popup.desktop_agent.prepare_context()
+
+@app.post("/api/popup/trigger")
+def receive_popup_trigger(payload: PopupTriggerPayload):
+    global _last_popup_trigger
+    _last_popup_trigger = payload.dict()
+    return {"status": "ok"}
+
+@app.get("/api/popup/trigger")
+def get_popup_trigger():
+    return _last_popup_trigger
+
+@app.post("/api/popup/autotype")
+def execute_autotype(req: AutoTypePayload):
+    popup.perform_autotype(req.username, req.password)
+    return {"status": "success", "message": "Autotype command sent"}
 
 if __name__ == "__main__":
     import uvicorn

@@ -2,9 +2,15 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Dependencies
+node_modules/
+desktop/node_modules/
+
 # Database
+*.db
 vault.db
 desktop/vault.db
+test_vault.db
 
 # Environments
 .env
@@ -19,10 +25,13 @@ venv.bak/
 .vscode/
 .idea/
 
-test_vault.db
-
 # Test files
 test_backend.py
 
-# Logs
+# Logs & Temp files
+*.log
+desktop/*.log
 valtr_startup.log
+popup_restored.py
+desktop/popup_restored.py
+
