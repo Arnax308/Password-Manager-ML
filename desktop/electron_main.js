@@ -65,6 +65,10 @@ function createMainWindow() {
   mainWindow.loadFile(path.join(__dirname, 'web_ui', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
+    // Lock vault on app startup to guarantee master password auth prompt
+    const req = http.request(`${BACKEND_URL}/api/lock`, { method: 'POST' });
+    req.on('error', () => {});
+    req.end();
     mainWindow.show();
   });
 

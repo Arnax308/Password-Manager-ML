@@ -2181,3 +2181,63 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 10px var(--accent-glow);
   cursor: pointer;
 }
+
+/* OPTION TILES & TOGGLE SWITCHES */
+.option-tile {
+  background: var(--surface-color);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.option-tile:hover {
+  border-color: var(--accent-color);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.option-tile input[type="checkbox"] {
+  position: absolute !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+  display: none !important;
+}
+
+.tile-switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  transition: background 0.25s ease;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.tile-switch::before {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  background: #ffffff;
+  border-radius: 50%;
+  transition: transform 0.25s ease, background 0.25s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.option-tile input[type="checkbox"]:checked + .tile-switch {
+  background: var(--accent-color);
+}
+
+.option-tile input[type="checkbox"]:checked + .tile-switch::before {
+  transform: translateX(20px);
+}

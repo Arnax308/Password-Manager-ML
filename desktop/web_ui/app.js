@@ -144,6 +144,8 @@ function refreshCurrentView() {
 }
 
 // APP STATUS & AUTH
+let isSessionAuthenticated = false;
+
 async function checkAppStatus() {
   try {
     const res = await fetch(`${API_BASE}/api/status`);
@@ -155,7 +157,7 @@ async function checkAppStatus() {
     const groupSetup = document.getElementById('group-setup-name');
     const submitBtnText = document.getElementById('btn-auth-text');
 
-    if (status.is_unlocked) {
+    if (status.is_unlocked && isSessionAuthenticated) {
       authScreen.classList.remove('active');
       mainApp.classList.add('active');
       switchTab('vault');
@@ -205,6 +207,7 @@ async function handleAuthSubmit(event) {
 
     const data = await res.json();
     if (res.ok) {
+      isSessionAuthenticated = true;
       currentMasterPassword = password;
       document.getElementById('auth-screen').classList.remove('active');
       document.getElementById('main-app').classList.add('active');
@@ -220,6 +223,7 @@ async function handleAuthSubmit(event) {
 
 async function lockVault() {
   await fetch(`${API_BASE}/api/lock`, { method: 'POST' });
+  isSessionAuthenticated = false;
   currentMasterPassword = '';
   document.getElementById('input-master-password').value = '';
   checkAppStatus();
@@ -298,72 +302,217 @@ function renderVaultList(passwords, overrideQuery = null) {
     return;
   }
 
+  // Group entries by Domain
+  const domainGroupMap = {};
+  filtered.forEach(p => {
+    const dom = (p.domain || '').toLowerCase().trim();
+    if (!domainGroupMap[dom]) domainGroupMap[dom] = [];
+    domainGroupMap[dom].push(p);
+  });
+
   const now = new Date();
+  let tableRowsHtml = '';
 
-  tbody.innerHTML = filtered.map(acct => {
-    const avatarChar = acct.domain ? acct.domain[0].toUpperCase() : '?';
-    const acctScore = Math.round((acct.strength_score || 1.0) * 100);
-    let acctTextClass = 'text-accent';
-    if (acctScore < 50) acctTextClass = 'text-danger';
-    else if (acctScore < 75) acctTextClass = 'text-warn';
+  Object.entries(domainGroupMap).forEach(([domainKey, accounts]) => {
+    const primaryDomName = accounts[0].domain;
+    const avatarChar = primaryDomName ? primaryDomName[0].toUpperCase() : '?';
+    const safeDomain = primaryDomName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const isMulti = accounts.length > 1;
 
-    // Calculate ML TTL remaining days
-    const maxTtl = acct.ttl_days || 365;
-    const createdDate = acct.created_at ? new Date(acct.created_at) : new Date();
-    const ageDays = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
-    const remainingTtl = Math.max(0, maxTtl - ageDays);
-    let ttlBadgeClass = 'badge-ttl-ok';
-    if (remainingTtl <= 0 || remainingTtl < 30) ttlBadgeClass = 'badge-ttl-danger';
-    else if (remainingTtl < 90) ttlBadgeClass = 'badge-ttl-warn';
-
-    // Safe string escapes
-    const safePw = acct.password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const safeUser = acct.username.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const safeDomain = acct.domain.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-
-    // Associated Note Button
-    let noteBtnHtml = '';
-    if (acct.note_id) {
-      noteBtnHtml = `<button class="btn-note-link active" onclick="openAssociatedNote(${acct.note_id})" title="View Associated Secure Note"><i class="fa-solid fa-file-lines"></i> View Note</button>`;
-    } else {
-      noteBtnHtml = `<button class="btn-note-link" onclick="createNoteForPassword(${acct.id}, '${safeDomain}')" title="Create Associated Secure Note"><i class="fa-solid fa-square-plus"></i> Add Note</button>`;
+    // Check if multiple entries have the EXACT SAME PASSWORD
+    let samePasswordGroup = false;
+    if (isMulti) {
+      const firstPw = accounts[0].password;
+      samePasswordGroup = accounts.every(a => a.password === firstPw);
     }
 
-    return `
-      <tr>
-        <td>
-          <div class="vault-domain-cell">
-            <div class="card-avatar">${avatarChar}</div>
-            <span class="vault-domain-title">${acct.domain}</span>
-          </div>
-        </td>
-        <td>
-          <div class="vault-user-cell">
-            <span>${acct.username}</span>
-            <button class="btn-icon" onclick="copyToClipboard('${safeUser}', 'Username copied!')" title="Copy Username" style="font-size: 11px;"><i class="fa-regular fa-copy"></i></button>
-          </div>
-        </td>
-        <td>
-          ${acct.category ? `<span class="badge-tag" style="font-size: 10px; padding: 2px 8px;">${acct.category}</span>` : '<span class="text-dim" style="font-size: 11px;">—</span>'}
-        </td>
-        <td>
-          <span class="font-semibold ${acctTextClass}">${acctScore}%</span>
-        </td>
-        <td>
-          <span class="badge-ttl ${ttlBadgeClass}" title="ML Dynamic Time-To-Live: ${remainingTtl}d remaining of ${maxTtl}d"><i class="fa-solid fa-hourglass-half"></i> ${remainingTtl}d</span>
-        </td>
-        <td>
-          ${noteBtnHtml}
-        </td>
-        <td>
-          <div class="vault-actions-cell">
-            <button class="btn-icon" onclick="copyToClipboard('${safePw}', 'Password copied!')" title="Copy Password"><i class="fa-regular fa-key"></i></button>
-            <button class="btn-icon" onclick="openEditPasswordModalById(${acct.id})" title="Edit Entry"><i class="fa-solid fa-pen"></i></button>
-            <button class="btn-icon text-danger" onclick="deletePasswordEntry(${acct.id})" title="Delete Entry"><i class="fa-regular fa-trash-can"></i></button>
-          </div>
-        </td>
-      </tr>`;
-  }).join('');
+    const groupId = `group-dom-${domainKey.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+    // If multiple accounts exist for this domain, add a Domain Group Header Row!
+    if (isMulti) {
+      let actionButtons = '';
+      if (samePasswordGroup) {
+        actionButtons = `
+          <button class="btn-primary" style="padding: 3px 10px; font-size: 11px;" onclick="mergeEntriesForDomain('${safeDomain}')">
+            <i class="fa-solid fa-code-merge"></i> Merge Same-Password Accounts
+          </button>`;
+      } else {
+        actionButtons = `
+          <span class="text-dim" style="font-size: 11px; margin-right: 8px;">
+            <i class="fa-solid fa-shield-halved text-accent"></i> Distinct Passwords (Not Merged)
+          </span>`;
+      }
+
+      tableRowsHtml += `
+        <tr class="domain-group-header-row" style="background: rgba(255, 255, 255, 0.035); border-bottom: 1px solid var(--card-border);">
+          <td colspan="7" style="padding: 10px 18px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="card-avatar" style="width: 28px; height: 28px; font-size: 12px;">${avatarChar}</div>
+                <span class="vault-domain-title" style="font-size: 14px; font-weight: 700; color: #ffffff;">${primaryDomName}</span>
+                <span class="badge-tag" style="font-size: 10px; background: rgba(16, 185, 129, 0.15); color: var(--accent-color); border: 1px solid rgba(16, 185, 129, 0.3);">
+                  ${accounts.length} Accounts Linked
+                </span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                ${actionButtons}
+                <button class="btn-note-link active" onclick="toggleDomainGroupRows('${groupId}')" style="font-size: 11px;">
+                  <i class="fa-solid fa-eye" id="eye-${groupId}"></i> View Entries (${accounts.length})
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>`;
+    }
+
+    // Render each account row under this domain
+    accounts.forEach((acct, idx) => {
+      const acctScore = Math.round((acct.strength_score || 1.0) * 100);
+      let acctTextClass = 'text-accent';
+      if (acctScore < 50) acctTextClass = 'text-danger';
+      else if (acctScore < 75) acctTextClass = 'text-warn';
+
+      // Calculate ML TTL remaining days
+      const maxTtl = acct.ttl_days || 365;
+      const createdDate = acct.created_at ? new Date(acct.created_at) : new Date();
+      const ageDays = Math.floor((now - createdDate) / (1000 * 60 * 60 * 24));
+      const remainingTtl = Math.max(0, maxTtl - ageDays);
+      let ttlBadgeClass = 'badge-ttl-ok';
+      if (remainingTtl <= 0 || remainingTtl < 30) ttlBadgeClass = 'badge-ttl-danger';
+      else if (remainingTtl < 90) ttlBadgeClass = 'badge-ttl-warn';
+
+      // Safe string escapes
+      const safePw = acct.password.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+      // Parse usernames split by comma or slash
+      const userParts = (acct.username || '').split(/[,/]/).map(u => u.trim()).filter(Boolean);
+      const userBadgesHtml = userParts.map(u => {
+        const safeU = u.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        return `
+          <span class="badge-tag" style="font-size: 11.5px; padding: 2px 7px; background: rgba(255,255,255,0.06); border: 1px solid var(--card-border); color: var(--text-main); display: inline-flex; align-items: center; gap: 4px; margin-right: 4px;">
+            <i class="fa-regular fa-user" style="font-size: 9.5px; color: var(--accent-color);"></i> ${u}
+            <button class="btn-icon" onclick="copyToClipboard('${safeU}', 'Username copied!')" title="Copy ${u}" style="font-size: 9.5px; padding: 1px 3px; border: none; background: transparent;"><i class="fa-regular fa-copy"></i></button>
+          </span>`;
+      }).join('');
+
+      // Associated Note Button
+      let noteBtnHtml = '';
+      if (acct.note_id) {
+        noteBtnHtml = `<button class="btn-note-link active" onclick="openAssociatedNote(${acct.note_id})" title="View Associated Secure Note"><i class="fa-solid fa-file-lines"></i> View Note</button>`;
+      } else {
+        noteBtnHtml = `<button class="btn-note-link" onclick="createNoteForPassword(${acct.id}, '${safeDomain}')" title="Create Associated Secure Note"><i class="fa-solid fa-square-plus"></i> Add Note</button>`;
+      }
+
+      const rowGroupClass = isMulti ? `group-row-${groupId}` : '';
+
+      tableRowsHtml += `
+        <tr class="${rowGroupClass}">
+          <td>
+            <div class="vault-domain-cell" style="${isMulti ? 'padding-left: 18px;' : ''}">
+              ${!isMulti ? `<div class="card-avatar">${avatarChar}</div>` : '<i class="fa-solid fa-turn-up text-dim" style="transform: rotate(90deg); margin-right: 6px;"></i>'}
+              <span class="vault-domain-title">${acct.domain}</span>
+            </div>
+          </td>
+          <td>
+            <div class="vault-user-cell" style="display: flex; flex-wrap: wrap; gap: 4px;">
+              ${userBadgesHtml}
+            </div>
+          </td>
+          <td>
+            ${acct.category ? `<span class="badge-tag" style="font-size: 10px; padding: 2px 8px;">${acct.category}</span>` : '<span class="text-dim" style="font-size: 11px;">—</span>'}
+          </td>
+          <td>
+            <span class="font-semibold ${acctTextClass}">${acctScore}%</span>
+          </td>
+          <td>
+            <span class="badge-ttl ${ttlBadgeClass}" title="ML Dynamic Time-To-Live: ${remainingTtl}d remaining of ${maxTtl}d"><i class="fa-solid fa-hourglass-half"></i> ${remainingTtl}d</span>
+          </td>
+          <td>
+            ${noteBtnHtml}
+          </td>
+          <td>
+            <div class="vault-actions-cell">
+              <button class="btn-icon" onclick="copyToClipboard('${safePw}', 'Password copied!')" title="Copy Password"><i class="fa-regular fa-key"></i></button>
+              <button class="btn-icon" onclick="openEditPasswordModalById(${acct.id})" title="Edit Entry"><i class="fa-solid fa-pen"></i></button>
+              <button class="btn-icon text-danger" onclick="deletePasswordEntry(${acct.id})" title="Delete Entry"><i class="fa-regular fa-trash-can"></i></button>
+            </div>
+          </td>
+        </tr>`;
+    });
+  });
+
+  tbody.innerHTML = tableRowsHtml;
+}
+
+function toggleDomainGroupRows(groupId) {
+  const rows = document.querySelectorAll(`.group-row-${groupId}`);
+  const eyeIcon = document.getElementById(`eye-${groupId}`);
+  rows.forEach(r => {
+    if (r.style.display === 'none') {
+      r.style.display = 'table-row';
+    } else {
+      r.style.display = 'none';
+    }
+  });
+  if (eyeIcon) {
+    if (eyeIcon.className.includes('slash')) {
+      eyeIcon.className = 'fa-solid fa-eye';
+    } else {
+      eyeIcon.className = 'fa-solid fa-eye-slash';
+    }
+  }
+}
+
+async function mergeEntriesForDomain(domainName) {
+  const matches = cachedPasswords.filter(p => (p.domain || '').toLowerCase().trim() === domainName.toLowerCase().trim());
+  if (matches.length < 2) return;
+
+  // Verify passwords match
+  const firstPw = matches[0].password;
+  const samePasswordMatches = matches.filter(m => m.password === firstPw);
+
+  if (samePasswordMatches.length < 2) {
+    showToast('Cannot merge: entries have different passwords', 'warn');
+    return;
+  }
+
+  const allUsernames = [];
+  samePasswordMatches.forEach(m => {
+    const parts = (m.username || '').split(/[,/]/).map(u => u.trim()).filter(Boolean);
+    parts.forEach(u => {
+      if (!allUsernames.includes(u)) allUsernames.push(u);
+    });
+  });
+
+  const mergedUsernameStr = allUsernames.join(', ');
+  const primary = samePasswordMatches[0];
+  const secondaries = samePasswordMatches.slice(1);
+
+  if (!confirm(`Merge ${samePasswordMatches.length} accounts for '${primary.domain}' with identical passwords into 1 entry?\nCombined Usernames: ${mergedUsernameStr}`)) return;
+
+  try {
+    await fetch(`${API_BASE}/api/passwords/${primary.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        domain: primary.domain,
+        username: mergedUsernameStr,
+        password: primary.password,
+        note_id: primary.note_id,
+        category: primary.category || ''
+      })
+    });
+
+    for (const sec of secondaries) {
+      await fetch(`${API_BASE}/api/passwords/${sec.id}`, { method: 'DELETE' });
+    }
+
+    showToast(`Merged matching accounts for ${primary.domain}!`);
+    loadVaultData();
+  } catch (err) {
+    console.error('Failed to merge entries:', err);
+    showToast('Failed to merge accounts', 'error');
+  }
 }
 
 async function openAssociatedNote(noteId) {
