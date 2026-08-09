@@ -207,10 +207,12 @@ def unlock_vault(req: UnlockRequest):
         global CURRENT_KEY
         CURRENT_KEY = encryption.derive_key(req.master_password, salt)
         _unlock_failures = 0  # Reset on success
+        database.add_security_log('VAULT_UNLOCK', 'Vault master authentication successful', 'info')
         return {"message": "Vault unlocked"}
     else:
         _unlock_failures += 1
         _last_failure_time = time.time()
+        database.add_security_log('AUTH_FAILURE', 'Failed master password attempt', 'danger')
         raise HTTPException(status_code=401, detail="Invalid master password")
 
 @app.post("/api/lock")
@@ -218,7 +220,12 @@ def lock_vault():
     global CURRENT_KEY, _unlock_failures
     CURRENT_KEY = None
     _unlock_failures = 0
+    database.add_security_log('VAULT_LOCK', 'Vault locked by user', 'info')
     return {"message": "Vault locked"}
+
+@app.get("/api/logs")
+def get_security_logs():
+    return database.get_security_logs(100)
 
 @app.post("/api/change-master")
 def change_master(req: ChangeMasterRequest, key: bytes = Depends(require_auth)):
@@ -403,6 +410,7 @@ def save_password(req: PasswordSaveRequest, key: bytes = Depends(require_auth)):
         note_id=req.note_id,
         category=req.category
     )
+    database.add_security_log('PASSWORD_CREATE', f'Created credential entry for {req.domain}', 'info')
     notify_update()
     return {"message": "Password saved successfully"}
 
@@ -451,12 +459,14 @@ def update_password(item_id: int, req: PasswordUpdateRequest, key: bytes = Depen
         history=json.dumps(history_arr),
         category=req.category
     )
+    database.add_security_log('PASSWORD_UPDATE', f'Updated credential entry for {req.domain}', 'info')
     notify_update()
     return {"message": "Password updated successfully"}
 
 @app.delete("/api/passwords/{item_id}")
 def remove_password(item_id: int, key: bytes = Depends(require_auth)):
     database.delete_password(item_id)
+    database.add_security_log('PASSWORD_DELETE', f'Deleted credential entry #{item_id}', 'warn')
     notify_update()
     return {"message": "Password deleted successfully"}
 

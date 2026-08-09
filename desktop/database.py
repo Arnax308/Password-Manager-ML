@@ -31,6 +31,18 @@ def init_db():
             is_hidden INTEGER DEFAULT 1
         )
     ''')
+
+    # Table to store security and audit log events
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS security_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'info',
+            timestamp TEXT NOT NULL,
+            ip_address TEXT DEFAULT '127.0.0.1'
+        )
+    ''')
     
     # Try to add tags column to existing db if it was created before
     try:
@@ -310,6 +322,37 @@ def get_note_by_title(title: str):
             "is_hidden": bool(row[6] if row[6] is not None else 1)
         }
     return None
+
+def add_security_log(event_type: str, description: str, severity: str = 'info'):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    cursor.execute('''
+        INSERT INTO security_logs (event_type, description, severity, timestamp)
+        VALUES (?, ?, ?, ?)
+    ''', (event_type, description, severity, now))
+    conn.commit()
+    conn.close()
+
+def get_security_logs(limit: int = 100):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, event_type, description, severity, timestamp, ip_address
+        FROM security_logs
+        ORDER BY id DESC
+        LIMIT ?
+    ''', (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [{
+        "id": r[0],
+        "event_type": r[1],
+        "description": r[2],
+        "severity": r[3],
+        "timestamp": r[4],
+        "ip_address": r[5]
+    } for r in rows]
 
 if __name__ == "__main__":
     init_db()

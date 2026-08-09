@@ -129,6 +129,7 @@ function switchTab(tabName) {
   if (tabName === 'vault') loadVaultData();
   else if (tabName === 'notes') loadNotesData();
   else if (tabName === 'health') loadHealthData();
+  else if (tabName === 'logs') loadLogsData();
   else if (tabName === 'ml' || tabName === 'generator') loadMlSettings();
   else if (tabName === 'settings') loadSettingsData();
 }
@@ -269,6 +270,16 @@ function renderVaultList(passwords, overrideQuery = null) {
     if (currentCategoryFilter === 'Weak') return matchesSearch && (p.strength_score || 1.0) < 0.5;
     if (currentCategoryFilter === 'Recent') return matchesSearch;
     return matchesSearch && (p.category === currentCategoryFilter);
+  });
+
+  // Sort alphabetically by domain name A->Z (and secondary by username)
+  filtered.sort((a, b) => {
+    const domainA = (a.domain || '').toLowerCase();
+    const domainB = (b.domain || '').toLowerCase();
+    if (domainA !== domainB) return domainA.localeCompare(domainB);
+    const userA = (a.username || '').toLowerCase();
+    const userB = (b.username || '').toLowerCase();
+    return userA.localeCompare(userB);
   });
 
   document.getElementById('vault-subtitle-count').innerText = `${passwords.length} secure entries stored locally.`;
@@ -1324,4 +1335,82 @@ function updateExpiryNotifications(passwords) {
       showToast(`⚠️ ${expiringEntries.length} password${expiringEntries.length > 1 ? 's are' : ' is'} expiring soon based on ML TTL!`, 'warn');
     }
   }
+}
+
+// ── SLIDER FILL CALCULATOR ──
+function updateSliderFill(input) {
+  if (!input) return;
+  const min = parseFloat(input.min) || 0;
+  const max = parseFloat(input.max) || 100;
+  const val = parseFloat(input.value) || 0;
+  const pct = ((val - min) / (max - min)) * 100;
+  input.style.background = `linear-gradient(to right, var(--accent-color) ${pct}%, var(--surface-color) ${pct}%)`;
+}
+
+// ── SECURITY LOGS & AUDIT VIEW ──
+let cachedLogs = [];
+let currentLogFilter = 'All';
+
+async function loadLogsData() {
+  try {
+    const res = await fetch(`${API_BASE}/api/logs`);
+    cachedLogs = res.ok ? await res.json() : [];
+    renderLogsList(cachedLogs);
+  } catch (err) {
+    console.error('Failed to load security logs:', err);
+  }
+}
+
+function renderLogsList(logs) {
+  const tbody = document.getElementById('logs-table-body');
+  if (!tbody) return;
+
+  let filtered = logs.filter(l => {
+    if (currentLogFilter === 'All') return true;
+    return l.severity === currentLogFilter;
+  });
+
+  const countEl = document.getElementById('logs-subtitle-count');
+  if (countEl) {
+    countEl.innerText = `${logs.length} security audit events recorded.`;
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="text-align: center; padding: 36px; color: var(--text-dim);">
+          <i class="fa-solid fa-clipboard-check mb-2" style="font-size: 28px; display: block;"></i>
+          No security log events found matching '${currentLogFilter}'.
+        </td>
+      </tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(log => {
+    const dt = log.timestamp ? new Date(log.timestamp).toLocaleString() : 'Just now';
+    let sevBadge = '<span class="badge-ttl badge-ttl-ok"><i class="fa-solid fa-circle-info"></i> INFO</span>';
+    if (log.severity === 'warn') {
+      sevBadge = '<span class="badge-ttl badge-ttl-warn"><i class="fa-solid fa-triangle-exclamation"></i> WARN</span>';
+    } else if (log.severity === 'danger') {
+      sevBadge = '<span class="badge-ttl badge-ttl-danger"><i class="fa-solid fa-circle-xmark"></i> CRITICAL</span>';
+    }
+
+    return `
+      <tr>
+        <td style="font-size: 11.5px; color: var(--text-muted); font-family: monospace;">${dt}</td>
+        <td><span class="badge-tag" style="font-size: 10px; font-weight: 700;">${log.event_type}</span></td>
+        <td style="font-weight: 500;">${log.description}</td>
+        <td>${sevBadge}</td>
+        <td style="font-size: 11.5px; color: var(--text-muted); font-family: monospace;">${log.ip_address || '127.0.0.1'}</td>
+      </tr>`;
+  }).join('');
+}
+
+function filterLogsSeverity(severity, btnElement) {
+  currentLogFilter = severity;
+  if (btnElement && btnElement.parentElement) {
+    btnElement.parentElement.querySelectorAll('.cat-pill').forEach(p => p.classList.remove('active'));
+    btnElement.classList.add('active');
+  }
+  renderLogsList(cachedLogs);
 }

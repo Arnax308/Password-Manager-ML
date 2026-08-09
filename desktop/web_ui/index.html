@@ -93,6 +93,10 @@
             <i class="fa-solid fa-file-lines"></i>
             <span>Notes</span>
           </button>
+          <button class="nav-item" data-tab="logs" title="Security Logs">
+            <i class="fa-solid fa-clipboard-list"></i>
+            <span>Security Logs</span>
+          </button>
           <button class="nav-item" data-tab="settings" title="Settings">
             <i class="fa-solid fa-gear"></i>
             <span>Settings</span>
@@ -187,43 +191,37 @@
               </table>
             </div>
 
-            <!-- SECURITY EVENTS LOG TABLE -->
-            <div class="card card-padded mt-6">
-              <div class="card-title-row">
-                <h3>Security Events</h3>
+          </section>
+
+          <!-- SECURITY LOGS VIEW -->
+          <section id="view-logs" class="tab-view">
+            <div class="section-title-header">
+              <div>
+                <h2>Security & Audit Logs</h2>
+                <p class="subtitle-text" id="logs-subtitle-count">Real-time system events, auth attempts & vault modifications.</p>
               </div>
-              <div class="events-table-wrapper">
-                <table class="events-table">
-                  <thead>
-                    <tr>
-                      <th>Event</th>
-                      <th>Account</th>
-                      <th>Status</th>
-                      <th>Timestamp</th>
-                    </tr>
-                  </thead>
-                  <tbody id="events-table-body">
-                    <tr>
-                      <td><i class="fa-solid fa-key text-accent"></i> Password Updated</td>
-                      <td><code>github.com (user_alpha)</code></td>
-                      <td><span class="status-pill status-secure">SECURE</span></td>
-                      <td>Just now</td>
-                    </tr>
-                    <tr>
-                      <td><i class="fa-solid fa-shield-cat text-accent"></i> Local ML Verification</td>
-                      <td><code>google.com (personal)</code></td>
-                      <td><span class="status-pill status-secure">SECURE</span></td>
-                      <td>10 mins ago</td>
-                    </tr>
-                    <tr>
-                      <td><i class="fa-solid fa-lock text-muted"></i> Vault Session Unlocked</td>
-                      <td><code>127.0.0.1 (local)</code></td>
-                      <td><span class="status-pill status-info">INFO</span></td>
-                      <td>Today, 16:30</td>
-                    </tr>
-                  </tbody>
-                </table>
+
+              <div class="category-pills-bar">
+                <button class="cat-pill active" onclick="filterLogsSeverity('All', this)">All</button>
+                <button class="cat-pill" onclick="filterLogsSeverity('info', this)">Info</button>
+                <button class="cat-pill" onclick="filterLogsSeverity('warn', this)">Warnings</button>
+                <button class="cat-pill" onclick="filterLogsSeverity('danger', this)">Critical</button>
               </div>
+            </div>
+
+            <div class="vault-table-wrapper">
+              <table class="vault-table">
+                <thead>
+                  <tr>
+                    <th style="width: 170px;">Timestamp</th>
+                    <th style="width: 140px;">Event Type</th>
+                    <th>Description</th>
+                    <th style="width: 110px;">Severity</th>
+                    <th style="width: 120px;">IP Address</th>
+                  </tr>
+                </thead>
+                <tbody id="logs-table-body"></tbody>
+              </table>
             </div>
           </section>
 
@@ -380,7 +378,7 @@
                     <span>String Length</span>
                     <span class="length-number-badge" id="gen-length-val">24</span>
                   </div>
-                  <input type="range" id="gen-length" min="8" max="64" value="24" oninput="document.getElementById('gen-length-val').innerText = this.value">
+                  <input type="range" id="gen-length" min="8" max="64" value="24" oninput="document.getElementById('gen-length-val').innerText = this.value; if(typeof updateSliderFill==='function') updateSliderFill(this); generateStandardPassword();">
                   <div class="slider-ticks-row">
                     <span>MIN: 8</span>
                     <span>OPTIMAL: 32</span>
