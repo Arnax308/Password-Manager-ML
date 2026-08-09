@@ -185,12 +185,12 @@ def setup_vault(req: SetupRequest):
 def unlock_vault(req: UnlockRequest):
     global _unlock_failures, _last_failure_time
 
-    # Rate limiting: exponential backoff after 3 failures
-    if _unlock_failures >= 3:
-        backoff = min(30, 2 ** (_unlock_failures - 3))
-        elapsed = time.time() - _last_failure_time
-        if elapsed < backoff:
-            remaining = round(backoff - elapsed, 1)
+    now_time = time.time()
+    if _unlock_failures >= 5:
+        if now_time - _last_failure_time > 10:
+            _unlock_failures = 0
+        else:
+            remaining = round(10 - (now_time - _last_failure_time), 1)
             raise HTTPException(
                 status_code=429,
                 detail=f"Too many failed attempts. Try again in {remaining}s."
@@ -215,8 +215,9 @@ def unlock_vault(req: UnlockRequest):
 
 @app.post("/api/lock")
 def lock_vault():
-    global CURRENT_KEY
+    global CURRENT_KEY, _unlock_failures
     CURRENT_KEY = None
+    _unlock_failures = 0
     return {"message": "Vault locked"}
 
 @app.post("/api/change-master")

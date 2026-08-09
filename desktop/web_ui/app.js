@@ -154,6 +154,13 @@ async function checkAppStatus() {
     const groupSetup = document.getElementById('group-setup-name');
     const submitBtnText = document.getElementById('btn-auth-text');
 
+    if (status.is_unlocked) {
+      authScreen.classList.remove('active');
+      mainApp.classList.add('active');
+      switchTab('vault');
+      return;
+    }
+
     authScreen.classList.add('active');
     mainApp.classList.remove('active');
 
@@ -367,16 +374,6 @@ function createNoteForPassword(passwordId, domain) {
   openAddNoteModal();
   document.getElementById('modal-note-input-title').value = `Note for ${domain}`;
   document.getElementById('modal-note-linked-password-id').value = passwordId;
-}
-
-  // Add New Entry Card Tile
-  const addCard = document.createElement('div');
-  addCard.className = 'add-entry-card';
-  addCard.onclick = openAddPasswordModal;
-  addCard.innerHTML = `
-    <i class="fa-solid fa-plus" style="font-size: 24px;"></i>
-    <span style="font-size: 13px; font-weight: 600;">Add new entry</span>`;
-  gridContainer.appendChild(addCard);
 }
 
 function toggleDomainAccounts(cardId) {
