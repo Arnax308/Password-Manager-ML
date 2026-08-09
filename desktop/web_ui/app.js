@@ -247,10 +247,18 @@ function handleVaultSearch() {
 }
 
 function handleGlobalHeaderSearch() {
-  const query = document.getElementById('global-header-search').value.toLowerCase().trim();
+  const searchInput = document.getElementById('global-header-search');
+  if (!searchInput) return;
+  const query = searchInput.value.toLowerCase().trim();
   const activeView = document.querySelector('.tab-view.active');
-  if (activeView && activeView.id === 'view-vault') {
+  if (!activeView) return;
+
+  if (activeView.id === 'view-vault') {
     renderVaultList(cachedPasswords, query);
+  } else if (activeView.id === 'view-notes') {
+    renderNotesList(cachedNotes, query);
+  } else if (activeView.id === 'view-logs') {
+    renderLogsList(cachedLogs, query);
   }
 }
 
@@ -326,6 +334,8 @@ function renderVaultList(passwords, overrideQuery = null) {
       samePasswordGroup = accounts.every(a => a.password === firstPw);
     }
 
+    const isSearchActive = !!searchQuery;
+    const domCategory = accounts.find(a => a.category)?.category || '';
     const groupId = `group-dom-${domainKey.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
     // If multiple accounts exist for this domain, add a Domain Group Header Row!
@@ -350,6 +360,7 @@ function renderVaultList(passwords, overrideQuery = null) {
               <div style="display: flex; align-items: center; gap: 10px;">
                 <div class="card-avatar" style="width: 28px; height: 28px; font-size: 12px;">${avatarChar}</div>
                 <span class="vault-domain-title" style="font-size: 14px; font-weight: 700; color: #ffffff;">${primaryDomName}</span>
+                ${domCategory ? `<span class="badge-tag" style="font-size: 10px; padding: 2px 8px;">${domCategory}</span>` : ''}
                 <span class="badge-tag" style="font-size: 10px; background: rgba(16, 185, 129, 0.15); color: var(--accent-color); border: 1px solid rgba(16, 185, 129, 0.3);">
                   ${accounts.length} Accounts Linked
                 </span>
@@ -357,7 +368,7 @@ function renderVaultList(passwords, overrideQuery = null) {
               <div style="display: flex; align-items: center; gap: 8px;">
                 ${actionButtons}
                 <button class="btn-note-link active" onclick="toggleDomainGroupRows('${groupId}')" style="font-size: 11px;">
-                  <i class="fa-solid fa-eye" id="eye-${groupId}"></i> View Entries (${accounts.length})
+                  <i class="fa-solid ${isSearchActive ? 'fa-chevron-up' : 'fa-chevron-down'}" id="eye-${groupId}"></i> ${isSearchActive ? 'Collapse' : 'Expand'} Accounts (${accounts.length})
                 </button>
               </div>
             </div>
@@ -404,9 +415,10 @@ function renderVaultList(passwords, overrideQuery = null) {
       }
 
       const rowGroupClass = isMulti ? `group-row-${groupId}` : '';
+      const initialDisplayStyle = (isMulti && !isSearchActive) ? 'style="display: none;"' : '';
 
       tableRowsHtml += `
-        <tr class="${rowGroupClass}">
+        <tr class="${rowGroupClass}" ${initialDisplayStyle}>
           <td>
             <div class="vault-domain-cell" style="${isMulti ? 'padding-left: 18px;' : ''}">
               ${!isMulti ? `<div class="card-avatar">${avatarChar}</div>` : '<i class="fa-solid fa-turn-up text-dim" style="transform: rotate(90deg); margin-right: 6px;"></i>'}
@@ -419,7 +431,7 @@ function renderVaultList(passwords, overrideQuery = null) {
             </div>
           </td>
           <td>
-            ${acct.category ? `<span class="badge-tag" style="font-size: 10px; padding: 2px 8px;">${acct.category}</span>` : '<span class="text-dim" style="font-size: 11px;">—</span>'}
+            ${(!isMulti && acct.category) ? `<span class="badge-tag" style="font-size: 10px; padding: 2px 8px;">${acct.category}</span>` : '<span class="text-dim" style="font-size: 11px;">—</span>'}
           </td>
           <td>
             <span class="font-semibold ${acctTextClass}">${acctScore}%</span>
@@ -447,18 +459,20 @@ function renderVaultList(passwords, overrideQuery = null) {
 function toggleDomainGroupRows(groupId) {
   const rows = document.querySelectorAll(`.group-row-${groupId}`);
   const eyeIcon = document.getElementById(`eye-${groupId}`);
+  let isExpanding = false;
   rows.forEach(r => {
-    if (r.style.display === 'none') {
+    if (r.style.display === 'none' || !r.style.display) {
       r.style.display = 'table-row';
+      isExpanding = true;
     } else {
       r.style.display = 'none';
     }
   });
   if (eyeIcon) {
-    if (eyeIcon.className.includes('slash')) {
-      eyeIcon.className = 'fa-solid fa-eye';
+    if (isExpanding) {
+      eyeIcon.className = 'fa-solid fa-chevron-up';
     } else {
-      eyeIcon.className = 'fa-solid fa-eye-slash';
+      eyeIcon.className = 'fa-solid fa-chevron-down';
     }
   }
 }
